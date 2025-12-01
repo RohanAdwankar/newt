@@ -15,7 +15,6 @@ use ratatui::{
 };
 use serde::{Deserialize, Serialize};
 use std::{error::Error, io, process::Command, path::PathBuf, fs};
-use tempfile::NamedTempFile;
 use std::io::Write;
 
 #[derive(Parser, Debug)]
@@ -44,6 +43,12 @@ struct CommandResponse {
 enum CellType {
     Shell,
     Rust,
+    Python,
+    JavaScript,
+    TypeScript,
+    C,
+    Cpp,
+    Go,
 }
 
 #[derive(Clone, Serialize, Deserialize)]
@@ -140,9 +145,8 @@ impl App {
         }
         // Sort files
         self.available_files.sort();
-        if !self.available_files.is_empty() {
-            self.file_list_state.select(Some(0));
-        }
+        // Always select the first item (New Notebook)
+        self.file_list_state.select(Some(0));
     }
 
     fn add_cell(&mut self, cell_type: CellType) {
@@ -211,6 +215,12 @@ impl App {
             let cmd = cell.content.clone();
             let lang = match cell.cell_type {
                 CellType::Rust => Some("rust".to_string()),
+                CellType::Python => Some("python".to_string()),
+                CellType::JavaScript => Some("javascript".to_string()),
+                CellType::TypeScript => Some("typescript".to_string()),
+                CellType::C => Some("c".to_string()),
+                CellType::Cpp => Some("cpp".to_string()),
+                CellType::Go => Some("go".to_string()),
                 CellType::Shell => None,
             };
             Some(CommandRequest { command: cmd, language: lang })
@@ -381,15 +391,25 @@ async fn run_app<B: Backend + std::io::Write>(terminal: &mut Terminal<B>, app: &
                                                 app.input = cell.content.clone();
                                                 app.input_mode = InputMode::Editing;
                                             }
-                                            CellType::Rust => {
-                                                // Open editor
+                                            _ => {
+                                                // Open editor for all code cells
                                                 let content = cell.content.clone();
+                                                let ext = match cell.cell_type {
+                                                    CellType::Rust => ".rs",
+                                                    CellType::Python => ".py",
+                                                    CellType::JavaScript => ".js",
+                                                    CellType::TypeScript => ".ts",
+                                                    CellType::C => ".c",
+                                                    CellType::Cpp => ".cpp",
+                                                    CellType::Go => ".go",
+                                                    CellType::Shell => ".sh",
+                                                };
                                                 
                                                 // Suspend TUI
                                                 disable_raw_mode()?;
                                                 execute!(terminal.backend_mut(), LeaveAlternateScreen)?;
                                                 
-                                                let new_content = open_editor(&content)?;
+                                                let new_content = open_editor(&content, ext)?;
                                                 
                                                 // Resume TUI
                                                 execute!(terminal.backend_mut(), EnterAlternateScreen)?;
@@ -494,17 +514,28 @@ async fn run_app<B: Backend + std::io::Write>(terminal: &mut Terminal<B>, app: &
                             },
                             InputMode::Editing => match key.code {
                                 KeyCode::Enter => {
-                                    // If typing "rust", switch to rust cell and open editor
-                                    if app.input.trim() == "rust" {
+                                    let input = app.input.trim();
+                                    let (new_type, ext) = match input {
+                                        "rust" => (Some(CellType::Rust), ".rs"),
+                                        "py" | "python" => (Some(CellType::Python), ".py"),
+                                        "js" | "javascript" => (Some(CellType::JavaScript), ".js"),
+                                        "ts" | "typescript" => (Some(CellType::TypeScript), ".ts"),
+                                        "c" => (Some(CellType::C), ".c"),
+                                        "cpp" | "c++" => (Some(CellType::Cpp), ".cpp"),
+                                        "go" => (Some(CellType::Go), ".go"),
+                                        _ => (None, ""),
+                                    };
+
+                                    if let Some(cell_type) = new_type {
                                         if let Some(cell) = app.current_cell_mut() {
-                                            cell.cell_type = CellType::Rust;
-                                            cell.content = String::new(); // Clear "rust"
+                                            cell.cell_type = cell_type;
+                                            cell.content = String::new(); // Clear input
                                             
                                             // Open editor
                                             disable_raw_mode()?;
                                             execute!(terminal.backend_mut(), LeaveAlternateScreen)?;
                                             
-                                            let new_content = open_editor(&cell.content)?;
+                                            let new_content = open_editor(&cell.content, ext)?;
                                             
                                             execute!(terminal.backend_mut(), EnterAlternateScreen)?;
                                             enable_raw_mode()?;
@@ -574,10 +605,13 @@ async fn run_app<B: Backend + std::io::Write>(terminal: &mut Terminal<B>, app: &
     }
 }
 
-fn open_editor(content: &str) -> io::Result<String> {
+fn open_editor(content: &str, extension: &str) -> io::Result<String> {
     let editor = std::env::var("EDITOR").unwrap_or_else(|_| "vi".to_string());
     
-    let mut file = NamedTempFile::new()?;
+    let mut file = tempfile::Builder::new()
+        .suffix(extension)
+        .tempfile()?;
+        
     write!(file, "{}", content)?;
     
     let path = file.path().to_str().unwrap().to_string();
@@ -629,6 +663,12 @@ fn ui(f: &mut Frame, app: &App) {
                     let header = match cell.cell_type {
                         CellType::Shell => "Shell",
                         CellType::Rust => "Rust",
+                        CellType::Python => "Python",
+                        CellType::JavaScript => "JavaScript",
+                        CellType::TypeScript => "TypeScript",
+                        CellType::C => "C",
+                        CellType::Cpp => "C++",
+                        CellType::Go => "Go",
                     };
                     
                     let content = if cell.content.is_empty() {
