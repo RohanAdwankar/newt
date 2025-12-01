@@ -48,6 +48,7 @@ struct App {
     list_state: ListState,
     input: String,
     input_mode: InputMode,
+    pending_delete: bool,
 }
 
 enum InputMode {
@@ -62,6 +63,7 @@ impl App {
             list_state: ListState::default(),
             input: String::new(),
             input_mode: InputMode::Editing, // Start in editing mode for the first cell
+            pending_delete: false,
         };
         // Start with one empty shell cell
         app.add_cell(CellType::Shell);
@@ -84,6 +86,20 @@ impl App {
         self.list_state.select(Some(index));
         self.input.clear();
         self.input_mode = InputMode::Normal;
+    }
+
+    fn delete_current_cell(&mut self) {
+        if let Some(i) = self.list_state.selected() {
+            if self.cells.len() > 0 {
+                self.cells.remove(i);
+                if self.cells.is_empty() {
+                    // Always keep at least one cell
+                    self.add_cell(CellType::Shell);
+                } else if i >= self.cells.len() {
+                    self.list_state.select(Some(self.cells.len() - 1));
+                }
+            }
+        }
     }
 
     fn current_cell_mut(&mut self) -> Option<&mut Cell> {
@@ -143,34 +159,39 @@ async fn run_app<B: Backend + std::io::Write>(terminal: &mut Terminal<B>, app: &
                 match app.input_mode {
                     InputMode::Normal => match key.code {
                         KeyCode::Char('j') => {
-                            if key.modifiers.contains(KeyModifiers::SHIFT) {
-                                if let Some(i) = app.list_state.selected() {
-                                    app.insert_cell(i + 1, CellType::Shell);
-                                }
-                            } else {
-                                if let Some(i) = app.list_state.selected() {
-                                    if i < app.cells.len() - 1 {
-                                        app.list_state.select(Some(i + 1));
-                                    } else {
-                                        app.insert_cell(app.cells.len(), CellType::Shell);
-                                    }
+                            if let Some(i) = app.list_state.selected() {
+                                if i < app.cells.len() - 1 {
+                                    app.list_state.select(Some(i + 1));
                                 }
                             }
                         }
                         KeyCode::Char('k') => {
-                            if key.modifiers.contains(KeyModifiers::SHIFT) {
-                                if let Some(i) = app.list_state.selected() {
-                                    app.insert_cell(i, CellType::Shell);
-                                }
-                            } else {
-                                if let Some(i) = app.list_state.selected() {
-                                    if i > 0 {
-                                        app.list_state.select(Some(i - 1));
-                                    }
+                            if let Some(i) = app.list_state.selected() {
+                                if i > 0 {
+                                    app.list_state.select(Some(i - 1));
                                 }
                             }
                         }
+                        KeyCode::Char('o') => {
+                            if let Some(i) = app.list_state.selected() {
+                                app.insert_cell(i + 1, CellType::Shell);
+                            }
+                        }
+                        KeyCode::Char('O') => {
+                            if let Some(i) = app.list_state.selected() {
+                                app.insert_cell(i, CellType::Shell);
+                            }
+                        }
+                        KeyCode::Char('d') => {
+                            if app.pending_delete {
+                                app.delete_current_cell();
+                                app.pending_delete = false;
+                            } else {
+                                app.pending_delete = true;
+                            }
+                        }
                         KeyCode::Char('i') => {
+                            app.pending_delete = false;
                             // Edit current cell
                             if let Some(i) = app.list_state.selected() {
                                 let cell = &app.cells[i];
@@ -202,6 +223,7 @@ async fn run_app<B: Backend + std::io::Write>(terminal: &mut Terminal<B>, app: &
                             }
                         }
                         KeyCode::Enter => {
+                             app.pending_delete = false;
                              // Run the selected cell
                              if let Some(cell) = app.current_cell_mut() {
                                 let cmd = cell.content.clone();
@@ -234,9 +256,15 @@ async fn run_app<B: Backend + std::io::Write>(terminal: &mut Terminal<B>, app: &
                              }
                         }
                         KeyCode::Esc => {
-                            return Ok(());
+                            if app.pending_delete {
+                                app.pending_delete = false;
+                            } else {
+                                return Ok(());
+                            }
                         }
-                        _ => {}
+                        _ => {
+                            app.pending_delete = false;
+                        }
                     },
                     InputMode::Editing => match key.code {
                         KeyCode::Enter => {
@@ -401,18 +429,16 @@ fn ui(f: &mut Frame, app: &App) {
     f.render_stateful_widget(list, chunks[0], &mut app.list_state.clone());
 
     // Input box (only visible/active when editing a shell cell)
-    let input_text = match app.input_mode {
-        InputMode::Normal => "Normal Mode - Press 'Enter' to edit, 'j/k' to navigate, 'Shift+Enter' to run",
-        InputMode::Editing => &app.input,
-    };
-    
-    let input_style = match app.input_mode {
-        InputMode::Normal => Style::default().fg(Color::Gray),
-        InputMode::Editing => Style::default().fg(Color::Yellow),
-    };
-
-    let input_block = Paragraph::new(input_text)
-        .style(input_style)
-        .block(Block::default().borders(Borders::ALL).title("Input"));
-    f.render_widget(input_block, chunks[1]);
+    if let InputMode::Editing = app.input_mode {
+        if let Some(i) = app.list_state.selected() {
+            if let Some(cell) = app.cells.get(i) {
+                if cell.cell_type == CellType::Shell {
+                    let input_block = Paragraph::new(app.input.as_str())
+                        .style(Style::default().fg(Color::Yellow))
+                        .block(Block::default().borders(Borders::ALL).title("Input"));
+                    f.render_widget(input_block, chunks[1]);
+                }
+            }
+        }
+    }
 }
