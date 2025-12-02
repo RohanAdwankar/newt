@@ -12,6 +12,7 @@ use std::collections::HashSet;
 pub struct CommandRequest {
     pub command: String,
     pub language: Option<String>,
+    pub context: Option<String>,
 }
 
 #[derive(Serialize, Deserialize, Debug)]
@@ -21,19 +22,83 @@ pub struct CommandResponse {
     pub status: Option<i32>,
 }
 
+#[derive(Clone, PartialEq, Serialize, Deserialize, Debug)]
+pub enum CellType {
+    Shell,
+    Rust,
+    Python,
+    JavaScript,
+    TypeScript,
+    C,
+    Cpp,
+    Go,
+}
+
+#[derive(Clone, Serialize, Deserialize, Debug)]
+pub struct Cell {
+    pub id: String,
+    pub content: String,
+    pub output: String,
+    pub cell_type: CellType,
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+pub struct Notebook {
+    pub cells: Vec<Cell>,
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+pub struct ExportResponse {
+    pub markdown: String,
+}
+
 pub async fn execute_command(Json(payload): Json<CommandRequest>) -> Json<CommandResponse> {
     let language = payload.language.as_deref().unwrap_or("shell");
 
     match language {
-        "rust" => execute_rust(payload.command),
-        "python" => execute_python(payload.command),
-        "javascript" => execute_javascript(payload.command),
-        "typescript" => execute_typescript(payload.command),
-        "c" => execute_c(payload.command),
-        "cpp" => execute_cpp(payload.command),
-        "go" => execute_go(payload.command),
+        "rust" => execute_rust(payload.command, payload.context),
+        "python" => execute_python(payload.command, payload.context),
+        "javascript" => execute_javascript(payload.command, payload.context),
+        "typescript" => execute_typescript(payload.command, payload.context),
+        "c" => execute_c(payload.command, payload.context),
+        "cpp" => execute_cpp(payload.command, payload.context),
+        "go" => execute_go(payload.command, payload.context),
         _ => execute_shell(payload.command),
     }
+}
+
+pub async fn export_notebook(Json(notebook): Json<Notebook>) -> Json<ExportResponse> {
+    let mut markdown = String::from("# Newt Notebook Export\n\n");
+
+    for (i, cell) in notebook.cells.iter().enumerate() {
+        let lang_str = match cell.cell_type {
+            CellType::Shell => "bash",
+            CellType::Rust => "rust",
+            CellType::Python => "python",
+            CellType::JavaScript => "javascript",
+            CellType::TypeScript => "typescript",
+            CellType::C => "c",
+            CellType::Cpp => "cpp",
+            CellType::Go => "go",
+        };
+
+        markdown.push_str(&format!("## Cell {} ({})\n", i + 1, lang_str));
+        markdown.push_str("```");
+        markdown.push_str(lang_str);
+        markdown.push_str("\n");
+        markdown.push_str(&cell.content);
+        markdown.push_str("\n```\n");
+
+        if !cell.output.is_empty() {
+            markdown.push_str("### Output\n");
+            markdown.push_str("```\n");
+            markdown.push_str(&cell.output);
+            markdown.push_str("\n```\n");
+        }
+        markdown.push_str("\n");
+    }
+
+    Json(ExportResponse { markdown })
 }
 
 fn execute_shell(command: String) -> Json<CommandResponse> {
@@ -67,8 +132,18 @@ fn execute_shell(command: String) -> Json<CommandResponse> {
     }
 }
 
-fn execute_rust(code: String) -> Json<CommandResponse> {
-    let source_code = format!("fn main() {{\n{}\n}}", code);
+fn execute_rust(code: String, context: Option<String>) -> Json<CommandResponse> {
+    let full_code = if let Some(ctx) = context {
+        format!("{}\n{}", ctx, code)
+    } else {
+        code
+    };
+    let re = Regex::new(r"(?m)^\s*(?:pub\s+)?fn\s+main\s*\(").unwrap();
+    let source_code = if re.is_match(&full_code) {
+        full_code
+    } else {
+        format!("fn main() {{\n{}\n}}", full_code)
+    };
     
     let temp_dir = std::env::temp_dir();
     let file_name = format!("newt_script_{}.rs", uuid::Uuid::new_v4());
@@ -129,11 +204,17 @@ fn execute_rust(code: String) -> Json<CommandResponse> {
     }
 }
 
-fn execute_python(code: String) -> Json<CommandResponse> {
+fn execute_python(code: String, context: Option<String>) -> Json<CommandResponse> {
+    let full_code = if let Some(ctx) = context {
+        format!("{}\n{}", ctx, code)
+    } else {
+        code
+    };
+
     // Extract imports
     let re = Regex::new(r"(?m)^(?:import|from)\s+([a-zA-Z0-9_]+)").unwrap();
     let mut packages = HashSet::new();
-    for cap in re.captures_iter(&code) {
+    for cap in re.captures_iter(&full_code) {
         if let Some(pkg) = cap.get(1) {
             packages.insert(pkg.as_str().to_string());
         }
@@ -143,7 +224,7 @@ fn execute_python(code: String) -> Json<CommandResponse> {
     let file_name = format!("newt_script_{}.py", uuid::Uuid::new_v4());
     let file_path = temp_dir.join(&file_name);
 
-    if let Err(e) = std::fs::write(&file_path, &code) {
+    if let Err(e) = std::fs::write(&file_path, &full_code) {
          return Json(CommandResponse {
             stdout: "".to_string(),
             stderr: format!("Failed to write source file: {}", e),
@@ -155,8 +236,6 @@ fn execute_python(code: String) -> Json<CommandResponse> {
     cmd.arg("run");
     
     for pkg in packages {
-        // Filter out standard library modules if possible, but uv might handle it or just ignore
-        // Common stdlib modules to skip to avoid errors if uv tries to find them on PyPI
         let stdlib = ["os", "sys", "math", "json", "re", "time", "datetime", "random", "collections", "itertools", "functools"];
         if !stdlib.contains(&pkg.as_str()) {
             cmd.arg("--with").arg(pkg);
@@ -182,12 +261,18 @@ fn execute_python(code: String) -> Json<CommandResponse> {
     }
 }
 
-fn execute_javascript(code: String) -> Json<CommandResponse> {
+fn execute_javascript(code: String, context: Option<String>) -> Json<CommandResponse> {
+    let full_code = if let Some(ctx) = context {
+        format!("{}\n{}", ctx, code)
+    } else {
+        code
+    };
+
     let temp_dir = std::env::temp_dir();
     let file_name = format!("newt_script_{}.js", uuid::Uuid::new_v4());
     let file_path = temp_dir.join(&file_name);
 
-    if let Err(e) = std::fs::write(&file_path, &code) {
+    if let Err(e) = std::fs::write(&file_path, &full_code) {
          return Json(CommandResponse {
             stdout: "".to_string(),
             stderr: format!("Failed to write source file: {}", e),
@@ -215,12 +300,18 @@ fn execute_javascript(code: String) -> Json<CommandResponse> {
     }
 }
 
-fn execute_typescript(code: String) -> Json<CommandResponse> {
+fn execute_typescript(code: String, context: Option<String>) -> Json<CommandResponse> {
+    let full_code = if let Some(ctx) = context {
+        format!("{}\n{}", ctx, code)
+    } else {
+        code
+    };
+
     let temp_dir = std::env::temp_dir();
     let file_name = format!("newt_script_{}.ts", uuid::Uuid::new_v4());
     let file_path = temp_dir.join(&file_name);
 
-    if let Err(e) = std::fs::write(&file_path, &code) {
+    if let Err(e) = std::fs::write(&file_path, &full_code) {
          return Json(CommandResponse {
             stdout: "".to_string(),
             stderr: format!("Failed to write source file: {}", e),
@@ -250,13 +341,19 @@ fn execute_typescript(code: String) -> Json<CommandResponse> {
     }
 }
 
-fn execute_c(code: String) -> Json<CommandResponse> {
+fn execute_c(code: String, context: Option<String>) -> Json<CommandResponse> {
+    let full_code = if let Some(ctx) = context {
+        format!("{}\n{}", ctx, code)
+    } else {
+        code
+    };
+
     let temp_dir = std::env::temp_dir();
     let file_name = format!("newt_script_{}.c", uuid::Uuid::new_v4());
     let file_path = temp_dir.join(&file_name);
     let bin_path = temp_dir.join(format!("newt_script_{}", uuid::Uuid::new_v4()));
 
-    if let Err(e) = std::fs::write(&file_path, &code) {
+    if let Err(e) = std::fs::write(&file_path, &full_code) {
          return Json(CommandResponse {
             stdout: "".to_string(),
             stderr: format!("Failed to write source file: {}", e),
@@ -310,13 +407,19 @@ fn execute_c(code: String) -> Json<CommandResponse> {
     }
 }
 
-fn execute_cpp(code: String) -> Json<CommandResponse> {
+fn execute_cpp(code: String, context: Option<String>) -> Json<CommandResponse> {
+    let full_code = if let Some(ctx) = context {
+        format!("{}\n{}", ctx, code)
+    } else {
+        code
+    };
+
     let temp_dir = std::env::temp_dir();
     let file_name = format!("newt_script_{}.cpp", uuid::Uuid::new_v4());
     let file_path = temp_dir.join(&file_name);
     let bin_path = temp_dir.join(format!("newt_script_{}", uuid::Uuid::new_v4()));
 
-    if let Err(e) = std::fs::write(&file_path, &code) {
+    if let Err(e) = std::fs::write(&file_path, &full_code) {
          return Json(CommandResponse {
             stdout: "".to_string(),
             stderr: format!("Failed to write source file: {}", e),
@@ -324,8 +427,9 @@ fn execute_cpp(code: String) -> Json<CommandResponse> {
         });
     }
 
-    let compile_output = Command::new("g++")
+    let compile_output = Command::new("clang++")
         .arg(&file_path)
+        .arg("-I/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/c++/v1")
         .arg("-o")
         .arg(&bin_path)
         .output();
@@ -370,12 +474,18 @@ fn execute_cpp(code: String) -> Json<CommandResponse> {
     }
 }
 
-fn execute_go(code: String) -> Json<CommandResponse> {
+fn execute_go(code: String, context: Option<String>) -> Json<CommandResponse> {
+    let full_code = if let Some(ctx) = context {
+        format!("{}\n{}", ctx, code)
+    } else {
+        code
+    };
+
     let temp_dir = std::env::temp_dir();
     let file_name = format!("newt_script_{}.go", uuid::Uuid::new_v4());
     let file_path = temp_dir.join(&file_name);
 
-    if let Err(e) = std::fs::write(&file_path, &code) {
+    if let Err(e) = std::fs::write(&file_path, &full_code) {
          return Json(CommandResponse {
             stdout: "".to_string(),
             stderr: format!("Failed to write source file: {}", e),
@@ -407,5 +517,6 @@ fn execute_go(code: String) -> Json<CommandResponse> {
 pub fn app() -> Router {
     Router::new()
         .route("/exec", post(execute_command))
+        .route("/export", post(export_notebook))
         .layer(CorsLayer::permissive())
 }

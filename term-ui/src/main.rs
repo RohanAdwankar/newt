@@ -29,6 +29,17 @@ struct Args {
 struct CommandRequest {
     command: String,
     language: Option<String>,
+    context: Option<String>,
+}
+
+#[derive(Serialize)]
+struct Notebook {
+    cells: Vec<Cell>,
+}
+
+#[derive(Deserialize)]
+struct ExportResponse {
+    markdown: String,
 }
 
 #[derive(Deserialize)]
@@ -223,7 +234,32 @@ impl App {
                 CellType::Go => Some("go".to_string()),
                 CellType::Shell => None,
             };
-            Some(CommandRequest { command: cmd, language: lang })
+
+            let mut context = String::new();
+            if let Some(l) = &lang {
+                for i in 0..index {
+                    if let Some(prev_cell) = self.cells.get(i) {
+                        let prev_lang = match prev_cell.cell_type {
+                             CellType::Rust => Some("rust".to_string()),
+                             CellType::Python => Some("python".to_string()),
+                             CellType::JavaScript => Some("javascript".to_string()),
+                             CellType::TypeScript => Some("typescript".to_string()),
+                             CellType::C => Some("c".to_string()),
+                             CellType::Cpp => Some("cpp".to_string()),
+                             CellType::Go => Some("go".to_string()),
+                             CellType::Shell => None,
+                        };
+                        if prev_lang.as_ref() == Some(l) {
+                            context.push_str(&prev_cell.content);
+                            context.push('\n');
+                        }
+                    }
+                }
+            }
+            
+            let context_opt = if context.is_empty() { None } else { Some(context) };
+
+            Some(CommandRequest { command: cmd, language: lang, context: context_opt })
         } else {
             None
         }
@@ -333,6 +369,35 @@ async fn run_app<B: Backend + std::io::Write>(terminal: &mut Terminal<B>, app: &
                                                     app.app_mode = AppMode::Editor;
                                                     app.input_mode = InputMode::Normal;
                                                     app.list_state.select(Some(0));
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                            KeyCode::Char('e') => {
+                                if let Some(i) = app.file_list_state.selected() {
+                                    if i > 0 {
+                                        if let Some(path) = app.available_files.get(i - 1) {
+                                            if let Ok(content) = fs::read_to_string(path) {
+                                                if let Ok(cells) = serde_json::from_str::<Vec<Cell>>(&content) {
+                                                    let notebook = Notebook { cells };
+                                                    let client = client.clone();
+                                                    let res = client.post("http://127.0.0.1:3000/export")
+                                                        .json(&notebook)
+                                                        .send()
+                                                        .await;
+                                                    
+                                                    match res {
+                                                        Ok(resp) => {
+                                                            if let Ok(body) = resp.json::<ExportResponse>().await {
+                                                                let mut export_path = path.clone();
+                                                                export_path.set_extension("md");
+                                                                let _ = fs::write(export_path, body.markdown);
+                                                            }
+                                                        }
+                                                        Err(_) => {}
+                                                    }
                                                 }
                                             }
                                         }
