@@ -6,7 +6,7 @@ i for editing cell
 rust/go/cpp/py/c for types of language cells
 enter for running cell
 :ra for running all cells
-y/p
+y/p/P
 :export
 nvim tree:
 space e

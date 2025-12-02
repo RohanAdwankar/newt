@@ -483,6 +483,10 @@ async fn run_app<B: Backend + std::io::Write>(terminal: &mut Terminal<B>, app: &
                                             }
                                         }
                                     }
+                                    KeyCode::Char(':') => {
+                                        app.input_mode = InputMode::Command;
+                                        app.command_input.clear();
+                                    }
                                     _ => {}
                                 }
                             }
@@ -503,6 +507,16 @@ async fn run_app<B: Backend + std::io::Write>(terminal: &mut Terminal<B>, app: &
                                                 new_cell.id = uuid::Uuid::new_v4().to_string();
                                                 app.cells.insert(i + 1, new_cell);
                                                 app.status_message = Some("Cell pasted".to_string());
+                                            }
+                                        }
+                                    }
+                                    KeyCode::Char('P') => {
+                                        if let Some(cell) = &app.clipboard_cell {
+                                            if let Some(i) = app.list_state.selected() {
+                                                let mut new_cell = cell.clone();
+                                                new_cell.id = uuid::Uuid::new_v4().to_string();
+                                                app.cells.insert(i, new_cell);
+                                                app.status_message = Some("Cell pasted above".to_string());
                                             }
                                         }
                                     }
@@ -861,18 +875,28 @@ fn open_editor(content: &str, extension: &str) -> io::Result<String> {
 fn ui(f: &mut Frame, app: &App) {
     let area = f.area();
     
-    let main_chunks = if app.show_sidebar {
+    // 1. Split into Main Content (top) and Status/Command Bar (bottom)
+    let root_chunks = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([Constraint::Min(0), Constraint::Length(1)].as_ref())
+        .split(area);
+    
+    let main_content_area = root_chunks[0];
+    let bottom_bar_area = root_chunks[1];
+
+    // 2. Split Main Content into Sidebar and Editor
+    let content_chunks = if app.show_sidebar {
         let chunks = Layout::default()
             .direction(Direction::Horizontal)
             .constraints([Constraint::Percentage(20), Constraint::Percentage(80)].as_ref())
-            .split(area);
+            .split(main_content_area);
         (Some(chunks[0]), chunks[1])
     } else {
-        (None, area)
+        (None, main_content_area)
     };
 
     // Render Sidebar
-    if let Some(sidebar_area) = main_chunks.0 {
+    if let Some(sidebar_area) = content_chunks.0 {
         let mut items = vec![ListItem::new("New Notebook").style(Style::default().add_modifier(Modifier::BOLD))];
         for path in &app.available_files {
             items.push(ListItem::new(path.file_name().unwrap().to_string_lossy()));
@@ -892,13 +916,9 @@ fn ui(f: &mut Frame, app: &App) {
     }
 
     // Render Editor
-    let editor_area = main_chunks.1;
-    let chunks = Layout::default()
-        .direction(Direction::Vertical)
-        .margin(1)
-        .constraints([Constraint::Min(1), Constraint::Length(1)].as_ref())
-        .split(editor_area);
-
+    let editor_area = content_chunks.1;
+    // No need to split editor_area anymore for status bar, use it fully for list
+    
     let cells: Vec<ListItem> = app
         .cells
         .iter()
@@ -948,7 +968,7 @@ fn ui(f: &mut Frame, app: &App) {
         .block(Block::default().borders(Borders::NONE))
         .highlight_style(Style::default().add_modifier(Modifier::BOLD));
         
-    f.render_stateful_widget(list, chunks[0], &mut app.list_state.clone());
+    f.render_stateful_widget(list, editor_area, &mut app.list_state.clone());
 
     // Input box / Command bar
     match app.input_mode {
@@ -971,7 +991,7 @@ fn ui(f: &mut Frame, app: &App) {
         InputMode::Command => {
             let input_block = Paragraph::new(format!(":{}", app.command_input))
                 .style(Style::default().fg(Color::Cyan));
-            f.render_widget(input_block, chunks[1]);
+            f.render_widget(input_block, bottom_bar_area);
         }
         InputMode::Normal => {
                 let status = if let Some(msg) = &app.status_message {
@@ -983,7 +1003,7 @@ fn ui(f: &mut Frame, app: &App) {
                 };
                 let status_block = Paragraph::new(status)
                 .style(Style::default().fg(Color::DarkGray));
-                f.render_widget(status_block, chunks[1]);
+                f.render_widget(status_block, bottom_bar_area);
         }
         InputMode::Renaming => {
             let area = f.area();
