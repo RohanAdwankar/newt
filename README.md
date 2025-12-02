@@ -1,4 +1,16 @@
 newt stands for new terminal
+
+commands that work
+h/l for moving between cells
+i for editing cell
+rust/go/cpp/py/c for types of language cells
+enter for running cell
+:ra for running all cells
+nvim tree:
+space e
+space h/l
+
+
 the goal of newt is to write an alternative approach to using the computer than basic terminals
 so essentially think about how jupyter notebooks had a benefificl impacts to how we approach computing
 for example say the user wants to do a task they would typically do in a terminal
