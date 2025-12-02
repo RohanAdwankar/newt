@@ -83,6 +83,10 @@ struct App {
     pending_key: Option<char>,
     show_sidebar: bool,
     focus: Focus,
+    clipboard_cell: Option<Cell>,
+    clipboard_file: Option<PathBuf>,
+    status_message: Option<String>,
+    rename_input: String,
 }
 
 #[derive(PartialEq)]
@@ -96,6 +100,7 @@ enum InputMode {
     Normal,
     Editing,
     Command,
+    Renaming,
 }
 
 impl App {
@@ -113,6 +118,10 @@ impl App {
             pending_key: None,
             show_sidebar: false,
             focus: Focus::Editor,
+            clipboard_cell: None,
+            clipboard_file: None,
+            status_message: None,
+            rename_input: String::new(),
         };
 
         // Always refresh file list for sidebar
@@ -214,6 +223,13 @@ impl App {
         } else {
              let mut p = get_app_dir();
              p.push("notebook.newt");
+             
+             // Check if file exists and increment name
+             let mut counter = 2;
+             while p.exists() {
+                 p.set_file_name(format!("notebook{}.newt", counter));
+                 counter += 1;
+             }
              p
         };
         
@@ -419,11 +435,77 @@ async fn run_app<B: Backend + std::io::Write>(terminal: &mut Terminal<B>, app: &
                                     KeyCode::Char('l') | KeyCode::Right => {
                                         app.focus = Focus::Editor;
                                     }
+                                    KeyCode::Char('r') => {
+                                        if let Some(i) = app.file_list_state.selected() {
+                                            if i > 0 { // Can't rename "New Notebook"
+                                                if let Some(path) = app.available_files.get(i - 1) {
+                                                    app.rename_input = path.file_name().unwrap().to_string_lossy().to_string();
+                                                    app.input_mode = InputMode::Renaming;
+                                                }
+                                            }
+                                        }
+                                    }
+                                    KeyCode::Char('y') => {
+                                        if let Some(i) = app.file_list_state.selected() {
+                                            if i > 0 {
+                                                if let Some(path) = app.available_files.get(i - 1) {
+                                                    app.clipboard_file = Some(path.clone());
+                                                    app.status_message = Some(format!("Yanked {}", path.display()));
+                                                }
+                                            }
+                                        }
+                                    }
+                                    KeyCode::Char('p') => {
+                                        if let Some(src) = &app.clipboard_file {
+                                            if src.exists() {
+                                                let mut dest = src.clone();
+                                                let stem = src.file_stem().unwrap().to_string_lossy();
+                                                let ext = src.extension().unwrap_or_default().to_string_lossy();
+                                                
+                                                let mut counter = 1;
+                                                loop {
+                                                    let new_name = if ext.is_empty() {
+                                                        format!("{}_copy{}", stem, counter)
+                                                    } else {
+                                                        format!("{}_copy{}.{}", stem, counter, ext)
+                                                    };
+                                                    dest.set_file_name(new_name);
+                                                    if !dest.exists() {
+                                                        break;
+                                                    }
+                                                    counter += 1;
+                                                }
+                                                
+                                                if fs::copy(src, &dest).is_ok() {
+                                                    app.refresh_file_list();
+                                                    app.status_message = Some(format!("Pasted to {}", dest.display()));
+                                                }
+                                            }
+                                        }
+                                    }
                                     _ => {}
                                 }
                             }
                             Focus::Editor => {
                                 match key.code {
+                                    KeyCode::Char('y') => {
+                                        if let Some(i) = app.list_state.selected() {
+                                            if let Some(cell) = app.cells.get(i) {
+                                                app.clipboard_cell = Some(cell.clone());
+                                                app.status_message = Some("Cell yanked".to_string());
+                                            }
+                                        }
+                                    }
+                                    KeyCode::Char('p') => {
+                                        if let Some(cell) = &app.clipboard_cell {
+                                            if let Some(i) = app.list_state.selected() {
+                                                let mut new_cell = cell.clone();
+                                                new_cell.id = uuid::Uuid::new_v4().to_string();
+                                                app.cells.insert(i + 1, new_cell);
+                                                app.status_message = Some("Cell pasted".to_string());
+                                            }
+                                        }
+                                    }
                                     KeyCode::Char(':') => {
                                         app.input_mode = InputMode::Command;
                                         app.command_input.clear();
@@ -571,10 +653,14 @@ async fn run_app<B: Backend + std::io::Write>(terminal: &mut Terminal<B>, app: &
                                                 if let Ok(body) = resp.json::<ExportResponse>().await {
                                                     let mut export_path = path.clone();
                                                     export_path.set_extension("md");
-                                                    let _ = fs::write(export_path, body.markdown);
+                                                    if fs::write(&export_path, body.markdown).is_ok() {
+                                                        app.status_message = Some(format!("Exported to {}", export_path.display()));
+                                                    }
                                                 }
                                             }
-                                            Err(_) => {}
+                                            Err(_) => {
+                                                app.status_message = Some("Export failed".to_string());
+                                            }
                                         }
                                     }
                                 }
@@ -706,6 +792,42 @@ async fn run_app<B: Backend + std::io::Write>(terminal: &mut Terminal<B>, app: &
                             app.input_mode = InputMode::Normal;
                         }
                         _ => {}
+                    },
+                    InputMode::Renaming => match key.code {
+                        KeyCode::Enter => {
+                            if let Some(i) = app.file_list_state.selected() {
+                                if i > 0 {
+                                    if let Some(old_path) = app.available_files.get(i - 1) {
+                                        let mut new_path = old_path.clone();
+                                        new_path.set_file_name(&app.rename_input);
+                                        
+                                        if fs::rename(old_path, &new_path).is_ok() {
+                                            // Update file_path if we renamed the currently open file
+                                            if let Some(current) = &app.file_path {
+                                                if current == old_path {
+                                                    app.file_path = Some(new_path);
+                                                }
+                                            }
+                                            app.refresh_file_list();
+                                            app.status_message = Some(format!("Renamed to {}", app.rename_input));
+                                        } else {
+                                            app.status_message = Some("Rename failed".to_string());
+                                        }
+                                    }
+                                }
+                            }
+                            app.input_mode = InputMode::Normal;
+                        }
+                        KeyCode::Esc => {
+                            app.input_mode = InputMode::Normal;
+                        }
+                        KeyCode::Char(c) => {
+                            app.rename_input.push(c);
+                        }
+                        KeyCode::Backspace => {
+                            app.rename_input.pop();
+                        }
+                        _ => {}
                     }
                 }
             }
@@ -763,7 +885,7 @@ fn ui(f: &mut Frame, app: &App) {
         };
 
         let list = List::new(items)
-            .block(Block::default().borders(Borders::ALL).title("Files").border_style(border_style))
+            .block(Block::default().borders(Borders::RIGHT).border_style(border_style))
             .highlight_style(Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD));
             
         f.render_stateful_widget(list, sidebar_area, &mut app.file_list_state.clone());
@@ -852,7 +974,9 @@ fn ui(f: &mut Frame, app: &App) {
             f.render_widget(input_block, chunks[1]);
         }
         InputMode::Normal => {
-                let status = if let Some(path) = &app.file_path {
+                let status = if let Some(msg) = &app.status_message {
+                    msg.clone()
+                } else if let Some(path) = &app.file_path {
                     path.file_name().unwrap().to_string_lossy().to_string()
                 } else {
                     "[No Name]".to_string()
@@ -860,6 +984,16 @@ fn ui(f: &mut Frame, app: &App) {
                 let status_block = Paragraph::new(status)
                 .style(Style::default().fg(Color::DarkGray));
                 f.render_widget(status_block, chunks[1]);
+        }
+        InputMode::Renaming => {
+            let area = f.area();
+            // Center popup
+            let popup_area = Rect::new(area.width / 2 - 20, area.height / 2 - 1, 40, 3);
+            f.render_widget(ratatui::widgets::Clear, popup_area);
+            let input_block = Paragraph::new(app.rename_input.as_str())
+                .style(Style::default().fg(Color::Yellow))
+                .block(Block::default().borders(Borders::ALL).title("Rename File"));
+            f.render_widget(input_block, popup_area);
         }
     }
 }

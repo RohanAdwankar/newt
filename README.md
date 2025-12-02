@@ -6,9 +6,13 @@ i for editing cell
 rust/go/cpp/py/c for types of language cells
 enter for running cell
 :ra for running all cells
+y/p
+:export
 nvim tree:
 space e
 space h/l
+r
+y/p
 
 
 the goal of newt is to write an alternative approach to using the computer than basic terminals
