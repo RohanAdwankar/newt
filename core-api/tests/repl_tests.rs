@@ -270,3 +270,77 @@ async fn test_c_statefulness() {
     
     assert_eq!(resp.stdout.trim(), "55");
 }
+
+#[tokio::test]
+async fn test_rust_mixed_context() {
+    let app = app();
+
+    // Scenario 1: Context has main, Code is snippet
+    let response = app.clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/exec")
+                .header("content-type", "application/json")
+                .body(Body::from(serde_json::to_string(&CommandRequest {
+                    command: "println!(\"hi\");".to_string(),
+                    language: Some("rust".to_string()),
+                    context: Some("fn main() { println!(\"Hello, world!\"); }".to_string()),
+                }).unwrap()))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    let body = response.into_body().collect().await.unwrap().to_bytes();
+    let resp: CommandResponse = serde_json::from_slice(&body).unwrap();
+    assert_eq!(resp.stdout.trim(), "hi");
+
+    // Scenario 2: Context is snippet, Code is snippet
+    let response = app.clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/exec")
+                .header("content-type", "application/json")
+                .body(Body::from(serde_json::to_string(&CommandRequest {
+                    command: "println!(\"curr\");".to_string(),
+                    language: Some("rust".to_string()),
+                    context: Some("println!(\"prev\");".to_string()),
+                }).unwrap()))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    let body = response.into_body().collect().await.unwrap().to_bytes();
+    let resp: CommandResponse = serde_json::from_slice(&body).unwrap();
+    // Output should contain both because they are combined in one main
+    assert!(resp.stdout.contains("prev"));
+    assert!(resp.stdout.contains("curr"));
+}
+
+#[tokio::test]
+async fn test_rust_comment_main() {
+    let app = app();
+
+    let response = app.clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/exec")
+                .header("content-type", "application/json")
+                .body(Body::from(serde_json::to_string(&CommandRequest {
+                    command: "println!(\"hi\");".to_string(),
+                    language: Some("rust".to_string()),
+                    context: Some("// fn main".to_string()),
+                }).unwrap()))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    let body = response.into_body().collect().await.unwrap().to_bytes();
+    let resp: CommandResponse = serde_json::from_slice(&body).unwrap();
+    assert_eq!(resp.stdout.trim(), "hi");
+}

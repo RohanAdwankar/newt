@@ -133,16 +133,40 @@ fn execute_shell(command: String) -> Json<CommandResponse> {
 }
 
 fn execute_rust(code: String, context: Option<String>) -> Json<CommandResponse> {
-    let full_code = if let Some(ctx) = context {
-        format!("{}\n{}", ctx, code)
+    let context_str = context.unwrap_or_default();
+    // Simple regex to find 'fn main' anywhere
+    let re_context_main = Regex::new(r"fn\s+main").unwrap();
+    
+    let source_code = if re_context_main.is_match(&context_str) {
+        // Context has main. Treat as "New Program" sequence.
+        // Rename old main to avoid conflict.
+        let processed_context = re_context_main.replace_all(&context_str, "fn main_ignored").to_string();
+        
+        // Check if current code has main
+        let re_code_main = Regex::new(r"fn\s+main").unwrap();
+        let final_code = if re_code_main.is_match(&code) {
+            code
+        } else {
+            format!("fn main() {{\n{}\n}}", code)
+        };
+        
+        format!("{}\n{}", processed_context, final_code)
     } else {
-        code
-    };
-    let re = Regex::new(r"(?m)^\s*(?:pub\s+)?fn\s+main\s*\(").unwrap();
-    let source_code = if re.is_match(&full_code) {
-        full_code
-    } else {
-        format!("fn main() {{\n{}\n}}", full_code)
+        // Context has NO main. Treat as "Script" sequence.
+        let full_code = format!("{}\n{}", context_str, code);
+        let re_full_main = Regex::new(r"fn\s+main").unwrap();
+        
+        if re_full_main.is_match(&full_code) {
+            // If full code has main, we assume it's a valid program.
+            // BUT, if the main comes from context (which we missed above??) or code,
+            // and there are statements outside, it will fail.
+            // Since we are here, context definitely didn't have main (according to re_context_main).
+            // So main must be in 'code'.
+            // If 'code' has main, we trust the user.
+            full_code
+        } else {
+            format!("fn main() {{\n{}\n}}", full_code)
+        }
     };
     
     let temp_dir = std::env::temp_dir();
@@ -150,7 +174,9 @@ fn execute_rust(code: String, context: Option<String>) -> Json<CommandResponse> 
     let file_path = temp_dir.join(&file_name);
     let bin_path = temp_dir.join(format!("newt_script_{}", uuid::Uuid::new_v4()));
 
-    if let Err(e) = std::fs::write(&file_path, source_code) {
+    println!("DEBUG RUST SOURCE:\n{}", source_code);
+
+    if let Err(e) = std::fs::write(&file_path, &source_code) {
          return Json(CommandResponse {
             stdout: "".to_string(),
             stderr: format!("Failed to write source file: {}", e),
@@ -408,18 +434,44 @@ fn execute_c(code: String, context: Option<String>) -> Json<CommandResponse> {
 }
 
 fn execute_cpp(code: String, context: Option<String>) -> Json<CommandResponse> {
-    let full_code = if let Some(ctx) = context {
-        format!("{}\n{}", ctx, code)
+    let context_str = context.unwrap_or_default();
+    let re_context_main = Regex::new(r"(?m)int\s+main\s*\(").unwrap();
+    
+    let mut source_code = if re_context_main.is_match(&context_str) {
+        // Context has main. Rename it.
+        let processed_context = re_context_main.replace_all(&context_str, "int main_ignored(").to_string();
+        
+        let re_code_main = Regex::new(r"(?m)int\s+main\s*\(").unwrap();
+        let final_code = if re_code_main.is_match(&code) {
+            code
+        } else {
+            format!("int main() {{\n{}\nreturn 0;\n}}", code)
+        };
+        
+        format!("{}\n{}", processed_context, final_code)
     } else {
-        code
+        // Context has NO main.
+        let full_code = format!("{}\n{}", context_str, code);
+        let re_full_main = Regex::new(r"(?m)int\s+main\s*\(").unwrap();
+        
+        if re_full_main.is_match(&full_code) {
+            full_code
+        } else {
+            format!("int main() {{\n{}\nreturn 0;\n}}", full_code)
+        }
     };
+
+    // Ensure includes
+    if !source_code.contains("#include <iostream>") {
+        source_code = format!("#include <iostream>\n{}", source_code);
+    }
 
     let temp_dir = std::env::temp_dir();
     let file_name = format!("newt_script_{}.cpp", uuid::Uuid::new_v4());
     let file_path = temp_dir.join(&file_name);
     let bin_path = temp_dir.join(format!("newt_script_{}", uuid::Uuid::new_v4()));
 
-    if let Err(e) = std::fs::write(&file_path, &full_code) {
+    if let Err(e) = std::fs::write(&file_path, &source_code) {
          return Json(CommandResponse {
             stdout: "".to_string(),
             stderr: format!("Failed to write source file: {}", e),
