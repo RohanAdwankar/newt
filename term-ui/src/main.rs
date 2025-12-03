@@ -48,6 +48,13 @@ struct CommandResponse {
     stderr: String,
     #[allow(dead_code)]
     status: Option<i32>,
+    display_data: Option<Vec<DisplayData>>,
+}
+
+#[derive(Deserialize, Debug)]
+struct DisplayData {
+    data: std::collections::HashMap<String, serde_json::Value>,
+    metadata: std::collections::HashMap<String, serde_json::Value>,
 }
 
 #[derive(Clone, PartialEq, Serialize, Deserialize)]
@@ -617,7 +624,17 @@ async fn run_app<B: Backend + std::io::Write>(terminal: &mut Terminal<B>, app: &
                                                 match res {
                                                     Ok(resp) => {
                                                         if let Ok(body) = resp.json::<CommandResponse>().await {
-                                                            app.update_cell_output(i, format!("{}{}", body.stdout, body.stderr));
+                                                            let mut output = format!("{}{}", body.stdout, body.stderr);
+                                                            if let Some(display_data) = body.display_data {
+                                                                for data in display_data {
+                                                                    if let Some(image_path) = data.data.get("image/png").or(data.data.get("image/svg+xml")) {
+                                                                        if let Some(path_str) = image_path.as_str() {
+                                                                            output.push_str(&format!("\n[Image: {}]", path_str));
+                                                                        }
+                                                                    }
+                                                                }
+                                                            }
+                                                            app.update_cell_output(i, output);
                                                         } else {
                                                             app.update_cell_output(i, "Error parsing response".to_string());
                                                         }
@@ -692,7 +709,17 @@ async fn run_app<B: Backend + std::io::Write>(terminal: &mut Terminal<B>, app: &
                                             match res {
                                                 Ok(resp) => {
                                                     if let Ok(body) = resp.json::<CommandResponse>().await {
-                                                        app.update_cell_output(i, format!("{}{}", body.stdout, body.stderr));
+                                                        let mut output = format!("{}{}", body.stdout, body.stderr);
+                                                        if let Some(display_data) = body.display_data {
+                                                            for data in display_data {
+                                                                if let Some(image_path) = data.data.get("image/png").or(data.data.get("image/svg+xml")) {
+                                                                    if let Some(path_str) = image_path.as_str() {
+                                                                        output.push_str(&format!("\n[Image: {}]", path_str));
+                                                                    }
+                                                                }
+                                                            }
+                                                        }
+                                                        app.update_cell_output(i, output);
                                                     } else {
                                                         app.update_cell_output(i, "Error parsing response".to_string());
                                                     }
@@ -774,7 +801,17 @@ async fn run_app<B: Backend + std::io::Write>(terminal: &mut Terminal<B>, app: &
                                         match res {
                                             Ok(resp) => {
                                                 if let Ok(body) = resp.json::<CommandResponse>().await {
-                                                    app.update_cell_output(i, format!("{}{}", body.stdout, body.stderr));
+                                                    let mut output = format!("{}{}", body.stdout, body.stderr);
+                                                    if let Some(display_data) = body.display_data {
+                                                        for data in display_data {
+                                                            if let Some(image_path) = data.data.get("image/png").or(data.data.get("image/svg+xml")) {
+                                                                if let Some(path_str) = image_path.as_str() {
+                                                                    output.push_str(&format!("\n[Image: {}]", path_str));
+                                                                }
+                                                            }
+                                                        }
+                                                    }
+                                                    app.update_cell_output(i, output);
                                                 } else {
                                                     app.update_cell_output(i, "Error parsing response".to_string());
                                                 }
