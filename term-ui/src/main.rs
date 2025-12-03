@@ -48,6 +48,13 @@ struct CommandResponse {
     stderr: String,
     #[allow(dead_code)]
     status: Option<i32>,
+    display_data: Option<Vec<DisplayData>>,
+}
+
+#[derive(Deserialize, Debug)]
+struct DisplayData {
+    data: std::collections::HashMap<String, serde_json::Value>,
+    metadata: std::collections::HashMap<String, serde_json::Value>,
 }
 
 #[derive(Clone, PartialEq, Serialize, Deserialize)]
@@ -605,25 +612,54 @@ async fn run_app<B: Backend + std::io::Write>(terminal: &mut Terminal<B>, app: &
                                     }
                                     KeyCode::Enter => {
                                          app.pending_delete = false;
-                                         // Run the selected cell
+                                         // Run the selected cell or open output
                                          if let Some(i) = app.list_state.selected() {
-                                            if let Some(req) = app.get_run_request(i) {
-                                                let client = client.clone();
-                                                let res = client.post("http://127.0.0.1:3000/exec")
-                                                    .json(&req)
-                                                    .send()
-                                                    .await;
-
-                                                match res {
-                                                    Ok(resp) => {
-                                                        if let Ok(body) = resp.json::<CommandResponse>().await {
-                                                            app.update_cell_output(i, format!("{}{}", body.stdout, body.stderr));
-                                                        } else {
-                                                            app.update_cell_output(i, "Error parsing response".to_string());
+                                            let cell_idx = i / 2;
+                                            let is_output = i % 2 == 1;
+                                            
+                                            if is_output {
+                                                // Try to open output file if present
+                                                if let Some(cell) = app.cells.get(cell_idx) {
+                                                    // Simple regex to find [Image: path]
+                                                    // Or just look for the string
+                                                    for line in cell.output.lines() {
+                                                        if let Some(start) = line.find("[Image: ") {
+                                                            if let Some(end) = line[start..].find(']') {
+                                                                let path = &line[start + 8..start + end];
+                                                                let _ = open::that(path);
+                                                            }
                                                         }
                                                     }
-                                                    Err(e) => {
-                                                        app.update_cell_output(i, format!("Error connecting to server: {}", e));
+                                                }
+                                            } else {
+                                                if let Some(req) = app.get_run_request(cell_idx) {
+                                                    let client = client.clone();
+                                                    let res = client.post("http://127.0.0.1:3000/exec")
+                                                        .json(&req)
+                                                        .send()
+                                                        .await;
+
+                                                    match res {
+                                                        Ok(resp) => {
+                                                            if let Ok(body) = resp.json::<CommandResponse>().await {
+                                                                let mut output = format!("{}{}", body.stdout, body.stderr);
+                                                                if let Some(display_data) = body.display_data {
+                                                                    for data in display_data {
+                                                                        if let Some(image_path) = data.data.get("image/png").or(data.data.get("image/svg+xml")) {
+                                                                            if let Some(path_str) = image_path.as_str() {
+                                                                                output.push_str(&format!("\n[Image: {}]", path_str));
+                                                                            }
+                                                                        }
+                                                                    }
+                                                                }
+                                                                app.update_cell_output(cell_idx, output);
+                                                            } else {
+                                                                app.update_cell_output(cell_idx, "Error parsing response".to_string());
+                                                            }
+                                                        }
+                                                        Err(e) => {
+                                                            app.update_cell_output(cell_idx, format!("Error connecting to server: {}", e));
+                                                        }
                                                     }
                                                 }
                                             }
@@ -692,7 +728,17 @@ async fn run_app<B: Backend + std::io::Write>(terminal: &mut Terminal<B>, app: &
                                             match res {
                                                 Ok(resp) => {
                                                     if let Ok(body) = resp.json::<CommandResponse>().await {
-                                                        app.update_cell_output(i, format!("{}{}", body.stdout, body.stderr));
+                                                        let mut output = format!("{}{}", body.stdout, body.stderr);
+                                                        if let Some(display_data) = body.display_data {
+                                                            for data in display_data {
+                                                                if let Some(image_path) = data.data.get("image/png").or(data.data.get("image/svg+xml")) {
+                                                                    if let Some(path_str) = image_path.as_str() {
+                                                                        output.push_str(&format!("\n[Image: {}]", path_str));
+                                                                    }
+                                                                }
+                                                            }
+                                                        }
+                                                        app.update_cell_output(i, output);
                                                     } else {
                                                         app.update_cell_output(i, "Error parsing response".to_string());
                                                     }
@@ -774,7 +820,17 @@ async fn run_app<B: Backend + std::io::Write>(terminal: &mut Terminal<B>, app: &
                                         match res {
                                             Ok(resp) => {
                                                 if let Ok(body) = resp.json::<CommandResponse>().await {
-                                                    app.update_cell_output(i, format!("{}{}", body.stdout, body.stderr));
+                                                    let mut output = format!("{}{}", body.stdout, body.stderr);
+                                                    if let Some(display_data) = body.display_data {
+                                                        for data in display_data {
+                                                            if let Some(image_path) = data.data.get("image/png").or(data.data.get("image/svg+xml")) {
+                                                                if let Some(path_str) = image_path.as_str() {
+                                                                    output.push_str(&format!("\n[Image: {}]", path_str));
+                                                                }
+                                                            }
+                                                        }
+                                                    }
+                                                    app.update_cell_output(i, output);
                                                 } else {
                                                     app.update_cell_output(i, "Error parsing response".to_string());
                                                 }
@@ -917,54 +973,61 @@ fn ui(f: &mut Frame, app: &App) {
 
     // Render Editor
     let editor_area = content_chunks.1;
-    // No need to split editor_area anymore for status bar, use it fully for list
     
-    let cells: Vec<ListItem> = app
-        .cells
-        .iter()
-        .enumerate()
-        .map(|(i, cell)| {
-            let header = match cell.cell_type {
-                CellType::Shell => "Shell",
-                CellType::Rust => "Rust",
-                CellType::Python => "Python",
-                CellType::JavaScript => "JavaScript",
-                CellType::TypeScript => "TypeScript",
-                CellType::C => "C",
-                CellType::Cpp => "C++",
-                CellType::Go => "Go",
-            };
-            
-            let content = if cell.content.is_empty() {
-                "(empty)"
-            } else {
-                &cell.content
-            };
+    let mut list_items = Vec::new();
+    for (i, cell) in app.cells.iter().enumerate() {
+        // Input Item
+        let header = match cell.cell_type {
+            CellType::Shell => "Shell",
+            CellType::Rust => "Rust",
+            CellType::Python => "Python",
+            CellType::JavaScript => "JavaScript",
+            CellType::TypeScript => "TypeScript",
+            CellType::C => "C",
+            CellType::Cpp => "C++",
+            CellType::Go => "Go",
+        };
+        
+        let content = if cell.content.is_empty() {
+            "(empty)"
+        } else {
+            &cell.content
+        };
 
-            let style = if Some(i) == app.list_state.selected() && app.focus == Focus::Editor {
-                Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)
-            } else {
-                Style::default()
-            };
+        let style = if Some(i * 2) == app.list_state.selected() && app.focus == Focus::Editor {
+            Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)
+        } else {
+            Style::default()
+        };
 
-            let mut lines = vec![
-                Line::from(Span::styled(format!("[{}] {}", header, cell.id), style)),
-                Line::from(format!("In: {}", content)),
-            ];
-            
-            if !cell.output.is_empty() {
-                lines.push(Line::from("Out:"));
-                for line in cell.output.lines() {
-                    lines.push(Line::from(format!("  {}", line)));
-                }
+        let lines = vec![
+            Line::from(Span::styled(format!("[{}] {}", header, cell.id), style)),
+            Line::from(format!("In: {}", content)),
+        ];
+        list_items.push(ListItem::new(lines));
+
+        // Output Item
+        let output_style = if Some(i * 2 + 1) == app.list_state.selected() && app.focus == Focus::Editor {
+            Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)
+        } else {
+            Style::default()
+        };
+
+        let mut output_lines = vec![];
+        if !cell.output.is_empty() {
+            output_lines.push(Line::from(Span::styled("Out:", output_style)));
+            for line in cell.output.lines() {
+                output_lines.push(Line::from(format!("  {}", line)));
             }
-            lines.push(Line::from("")); // Spacer
+        } else {
+             output_lines.push(Line::from(Span::styled("Out: (empty)", output_style)));
+        }
+        output_lines.push(Line::from("")); // Spacer
+        
+        list_items.push(ListItem::new(output_lines));
+    }
 
-            ListItem::new(lines)
-        })
-        .collect();
-
-    let list = List::new(cells)
+    let list = List::new(list_items)
         .block(Block::default().borders(Borders::NONE))
         .highlight_style(Style::default().add_modifier(Modifier::BOLD));
         

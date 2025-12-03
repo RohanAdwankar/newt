@@ -7,6 +7,7 @@ use std::process::Command;
 use tower_http::cors::CorsLayer;
 use regex::Regex;
 use std::collections::HashSet;
+use directories::ProjectDirs;
 
 #[derive(Deserialize, Serialize)]
 pub struct CommandRequest {
@@ -20,6 +21,13 @@ pub struct CommandResponse {
     pub stdout: String,
     pub stderr: String,
     pub status: Option<i32>,
+    pub display_data: Option<Vec<DisplayData>>,
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+pub struct DisplayData {
+    pub data: std::collections::HashMap<String, serde_json::Value>,
+    pub metadata: std::collections::HashMap<String, serde_json::Value>,
 }
 
 #[derive(Clone, PartialEq, Serialize, Deserialize, Debug)]
@@ -108,6 +116,7 @@ fn execute_shell(command: String) -> Json<CommandResponse> {
             stdout: "".to_string(),
             stderr: "Empty command".to_string(),
             status: None,
+            display_data: None,
         });
     }
 
@@ -123,11 +132,13 @@ fn execute_shell(command: String) -> Json<CommandResponse> {
             stdout: String::from_utf8_lossy(&output.stdout).to_string(),
             stderr: String::from_utf8_lossy(&output.stderr).to_string(),
             status: output.status.code(),
+            display_data: None,
         }),
         Err(e) => Json(CommandResponse {
             stdout: "".to_string(),
             stderr: e.to_string(),
             status: None,
+            display_data: None,
         }),
     }
 }
@@ -181,6 +192,7 @@ fn execute_rust(code: String, context: Option<String>) -> Json<CommandResponse> 
             stdout: "".to_string(),
             stderr: format!("Failed to write source file: {}", e),
             status: None,
+            display_data: None,
         });
     }
 
@@ -198,6 +210,7 @@ fn execute_rust(code: String, context: Option<String>) -> Json<CommandResponse> 
                     stdout: String::from_utf8_lossy(&output.stdout).to_string(),
                     stderr: String::from_utf8_lossy(&output.stderr).to_string(),
                     status: output.status.code(),
+                    display_data: None,
                 });
             }
         }
@@ -207,6 +220,7 @@ fn execute_rust(code: String, context: Option<String>) -> Json<CommandResponse> 
                 stdout: "".to_string(),
                 stderr: format!("Failed to execute rustc: {}", e),
                 status: None,
+                display_data: None,
             });
         }
     }
@@ -221,18 +235,34 @@ fn execute_rust(code: String, context: Option<String>) -> Json<CommandResponse> 
             stdout: String::from_utf8_lossy(&output.stdout).to_string(),
             stderr: String::from_utf8_lossy(&output.stderr).to_string(),
             status: output.status.code(),
+            display_data: None,
         }),
         Err(e) => Json(CommandResponse {
             stdout: "".to_string(),
             stderr: format!("Failed to run compiled binary: {}", e),
             status: None,
+            display_data: None,
         }),
     }
 }
 
 fn execute_python(code: String, context: Option<String>) -> Json<CommandResponse> {
     let full_code = if let Some(ctx) = context {
-        format!("{}\n{}", ctx, code)
+        let indented_ctx = ctx.lines().map(|line| format!("    {}", line)).collect::<Vec<_>>().join("\n");
+        format!(r#"
+import sys
+import os
+_newt_old_stdout = sys.stdout
+sys.stdout = open(os.devnull, 'w')
+try:
+{}
+    pass
+finally:
+    sys.stdout.close()
+    sys.stdout = _newt_old_stdout
+
+{}
+"#, indented_ctx, code)
     } else {
         code
     };
@@ -249,18 +279,142 @@ fn execute_python(code: String, context: Option<String>) -> Json<CommandResponse
     let temp_dir = std::env::temp_dir();
     let file_name = format!("newt_script_{}.py", uuid::Uuid::new_v4());
     let file_path = temp_dir.join(&file_name);
+    
+    // Create a directory for outputs
+    // Use a persistent directory in the standard data directory
+    let images_dir = if let Some(proj_dirs) = ProjectDirs::from("com", "newt", "newt") {
+        let data_dir = proj_dirs.data_dir();
+        data_dir.join("images")
+    } else {
+        // Fallback to temp dir if we can't find a data dir
+        std::env::temp_dir().join("newt_images")
+    };
 
-    if let Err(e) = std::fs::write(&file_path, &full_code) {
+    if !images_dir.exists() {
+        let _ = std::fs::create_dir_all(&images_dir);
+    }
+    
+    let output_dir_name = format!("newt_output_{}", uuid::Uuid::new_v4());
+    let output_dir = images_dir.join(&output_dir_name);
+    if let Err(e) = std::fs::create_dir(&output_dir) {
+         return Json(CommandResponse {
+            stdout: "".to_string(),
+            stderr: format!("Failed to create output directory: {}", e),
+            status: None,
+            display_data: None,
+        });
+    }
+    let output_dir_str = output_dir.to_string_lossy().replace("\\", "\\\\");
+
+    // Python wrapper script
+    let wrapper_script = format!(r#"
+import sys
+import os
+import json
+import base64
+import builtins
+
+_newt_outputs = []
+_newt_output_dir = "{}"
+
+def _newt_display(obj, **kwargs):
+    data = {{}}
+    metadata = {{}}
+    
+    if hasattr(obj, "_repr_mimebundle_"):
+        try:
+            data, metadata = obj._repr_mimebundle_(include=None, exclude=None)
+        except Exception:
+            pass
+            
+    if not data:
+        if hasattr(obj, "_repr_png_"):
+            data["image/png"] = obj._repr_png_()
+        if hasattr(obj, "_repr_svg_"):
+            data["image/svg+xml"] = obj._repr_svg_()
+        if hasattr(obj, "_repr_html_"):
+            data["text/html"] = obj._repr_html_()
+        if hasattr(obj, "_repr_json_"):
+            data["application/json"] = obj._repr_json_()
+        if hasattr(obj, "__repr__"):
+            data["text/plain"] = obj.__repr__()
+
+    if data:
+        processed_data = {{}}
+        for mime, content in data.items():
+            if mime.startswith("image/"):
+                ext = "svg" if "svg" in mime else "png"
+                filename = f"newt_{{len(_newt_outputs)}}_{{os.getpid()}}.{{ext}}"
+                filepath = os.path.join(_newt_output_dir, filename)
+                
+                mode = "wb" if isinstance(content, bytes) else "w"
+                with open(filepath, mode) as f:
+                    if isinstance(content, bytes):
+                        f.write(content)
+                    else:
+                        f.write(content.encode('utf-8') if hasattr(content, 'encode') else content)
+                processed_data[mime] = filepath
+            else:
+                processed_data[mime] = content
+        
+        _newt_outputs.append({{
+            "data": processed_data,
+            "metadata": metadata
+        }})
+
+builtins.display = _newt_display
+
+# --- User Code ---
+{}
+# -----------------
+
+if "matplotlib.pyplot" in sys.modules:
+    try:
+        import matplotlib.pyplot as plt
+        # Check for open figures
+        for i in plt.get_fignums():
+            fig = plt.figure(i)
+            from io import BytesIO
+            buf = BytesIO()
+            fig.savefig(buf, format='png')
+            
+            filename = f"newt_mpl_{{i}}_{{os.getpid()}}.png"
+            filepath = os.path.join(_newt_output_dir, filename)
+            with open(filepath, "wb") as f:
+                f.write(buf.getvalue())
+                
+            _newt_outputs.append({{
+                "data": {{"image/png": filepath}},
+                "metadata": {{}}
+            }})
+            plt.close(i)
+    except Exception:
+        pass
+
+# Trigger post-execute events (standard Jupyter lifecycle)
+
+if _newt_outputs:
+    print(f"\n__NEWT_DISPLAY_START__")
+    print(json.dumps(_newt_outputs))
+    print(f"__NEWT_DISPLAY_END__")
+
+"#, output_dir_str, full_code);
+
+    if let Err(e) = std::fs::write(&file_path, &wrapper_script) {
          return Json(CommandResponse {
             stdout: "".to_string(),
             stderr: format!("Failed to write source file: {}", e),
             status: None,
+            display_data: None,
         });
     }
 
     let mut cmd = Command::new("uv");
     cmd.arg("run");
     
+    // Force Agg backend to avoid popups
+    cmd.env("MPLBACKEND", "Agg");
+
     for pkg in packages {
         let stdlib = ["os", "sys", "math", "json", "re", "time", "datetime", "random", "collections", "itertools", "functools"];
         if !stdlib.contains(&pkg.as_str()) {
@@ -274,15 +428,39 @@ fn execute_python(code: String, context: Option<String>) -> Json<CommandResponse
     let _ = std::fs::remove_file(&file_path);
 
     match output {
-        Ok(output) => Json(CommandResponse {
-            stdout: String::from_utf8_lossy(&output.stdout).to_string(),
-            stderr: String::from_utf8_lossy(&output.stderr).to_string(),
-            status: output.status.code(),
-        }),
+        Ok(output) => {
+            let stdout_raw = String::from_utf8_lossy(&output.stdout).to_string();
+            let stderr = String::from_utf8_lossy(&output.stderr).to_string();
+            
+            let mut stdout = stdout_raw.clone();
+            let mut display_data = None;
+
+            if let Some(start_idx) = stdout_raw.find("__NEWT_DISPLAY_START__") {
+                if let Some(end_idx) = stdout_raw.find("__NEWT_DISPLAY_END__") {
+                    let json_str = &stdout_raw[start_idx + "__NEWT_DISPLAY_START__".len()..end_idx].trim();
+                    if let Ok(data) = serde_json::from_str::<Vec<DisplayData>>(json_str) {
+                        for item in &data {
+                            println!("Generated display data with keys: {:?}", item.data.keys());
+                        }
+                        display_data = Some(data);
+                    }
+                    // Remove the display block from stdout
+                    stdout = format!("{}{}", &stdout_raw[..start_idx], &stdout_raw[end_idx + "__NEWT_DISPLAY_END__".len()..]);
+                }
+            }
+
+            Json(CommandResponse {
+                stdout: stdout.trim().to_string(),
+                stderr,
+                status: output.status.code(),
+                display_data,
+            })
+        },
         Err(e) => Json(CommandResponse {
             stdout: "".to_string(),
             stderr: format!("Failed to execute uv: {}", e),
             status: None,
+            display_data: None,
         }),
     }
 }
@@ -303,6 +481,7 @@ fn execute_javascript(code: String, context: Option<String>) -> Json<CommandResp
             stdout: "".to_string(),
             stderr: format!("Failed to write source file: {}", e),
             status: None,
+            display_data: None,
         });
     }
 
@@ -317,11 +496,13 @@ fn execute_javascript(code: String, context: Option<String>) -> Json<CommandResp
             stdout: String::from_utf8_lossy(&output.stdout).to_string(),
             stderr: String::from_utf8_lossy(&output.stderr).to_string(),
             status: output.status.code(),
+            display_data: None,
         }),
         Err(e) => Json(CommandResponse {
             stdout: "".to_string(),
             stderr: format!("Failed to execute node: {}", e),
             status: None,
+            display_data: None,
         }),
     }
 }
@@ -342,6 +523,7 @@ fn execute_typescript(code: String, context: Option<String>) -> Json<CommandResp
             stdout: "".to_string(),
             stderr: format!("Failed to write source file: {}", e),
             status: None,
+            display_data: None,
         });
     }
 
@@ -358,11 +540,13 @@ fn execute_typescript(code: String, context: Option<String>) -> Json<CommandResp
             stdout: String::from_utf8_lossy(&output.stdout).to_string(),
             stderr: String::from_utf8_lossy(&output.stderr).to_string(),
             status: output.status.code(),
+            display_data: None,
         }),
         Err(e) => Json(CommandResponse {
             stdout: "".to_string(),
             stderr: format!("Failed to execute npx tsx: {}", e),
             status: None,
+            display_data: None,
         }),
     }
 }
@@ -384,6 +568,7 @@ fn execute_c(code: String, context: Option<String>) -> Json<CommandResponse> {
             stdout: "".to_string(),
             stderr: format!("Failed to write source file: {}", e),
             status: None,
+            display_data: None,
         });
     }
 
@@ -401,6 +586,7 @@ fn execute_c(code: String, context: Option<String>) -> Json<CommandResponse> {
                     stdout: String::from_utf8_lossy(&output.stdout).to_string(),
                     stderr: String::from_utf8_lossy(&output.stderr).to_string(),
                     status: output.status.code(),
+                    display_data: None,
                 });
             }
         }
@@ -410,6 +596,7 @@ fn execute_c(code: String, context: Option<String>) -> Json<CommandResponse> {
                 stdout: "".to_string(),
                 stderr: format!("Failed to execute gcc: {}", e),
                 status: None,
+                display_data: None,
             });
         }
     }
@@ -424,11 +611,13 @@ fn execute_c(code: String, context: Option<String>) -> Json<CommandResponse> {
             stdout: String::from_utf8_lossy(&output.stdout).to_string(),
             stderr: String::from_utf8_lossy(&output.stderr).to_string(),
             status: output.status.code(),
+            display_data: None,
         }),
         Err(e) => Json(CommandResponse {
             stdout: "".to_string(),
             stderr: format!("Failed to run compiled binary: {}", e),
             status: None,
+            display_data: None,
         }),
     }
 }
@@ -476,6 +665,7 @@ fn execute_cpp(code: String, context: Option<String>) -> Json<CommandResponse> {
             stdout: "".to_string(),
             stderr: format!("Failed to write source file: {}", e),
             status: None,
+            display_data: None,
         });
     }
 
@@ -494,6 +684,7 @@ fn execute_cpp(code: String, context: Option<String>) -> Json<CommandResponse> {
                     stdout: String::from_utf8_lossy(&output.stdout).to_string(),
                     stderr: String::from_utf8_lossy(&output.stderr).to_string(),
                     status: output.status.code(),
+                    display_data: None,
                 });
             }
         }
@@ -503,6 +694,7 @@ fn execute_cpp(code: String, context: Option<String>) -> Json<CommandResponse> {
                 stdout: "".to_string(),
                 stderr: format!("Failed to execute g++: {}", e),
                 status: None,
+                display_data: None,
             });
         }
     }
@@ -517,11 +709,13 @@ fn execute_cpp(code: String, context: Option<String>) -> Json<CommandResponse> {
             stdout: String::from_utf8_lossy(&output.stdout).to_string(),
             stderr: String::from_utf8_lossy(&output.stderr).to_string(),
             status: output.status.code(),
+            display_data: None,
         }),
         Err(e) => Json(CommandResponse {
             stdout: "".to_string(),
             stderr: format!("Failed to run compiled binary: {}", e),
             status: None,
+            display_data: None,
         }),
     }
 }
@@ -542,6 +736,7 @@ fn execute_go(code: String, context: Option<String>) -> Json<CommandResponse> {
             stdout: "".to_string(),
             stderr: format!("Failed to write source file: {}", e),
             status: None,
+            display_data: None,
         });
     }
 
@@ -557,11 +752,13 @@ fn execute_go(code: String, context: Option<String>) -> Json<CommandResponse> {
             stdout: String::from_utf8_lossy(&output.stdout).to_string(),
             stderr: String::from_utf8_lossy(&output.stderr).to_string(),
             status: output.status.code(),
+            display_data: None,
         }),
         Err(e) => Json(CommandResponse {
             stdout: "".to_string(),
             stderr: format!("Failed to execute go run: {}", e),
             status: None,
+            display_data: None,
         }),
     }
 }

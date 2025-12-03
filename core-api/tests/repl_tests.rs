@@ -344,3 +344,106 @@ async fn test_rust_comment_main() {
     let resp: CommandResponse = serde_json::from_slice(&body).unwrap();
     assert_eq!(resp.stdout.trim(), "hi");
 }
+
+#[tokio::test]
+async fn test_python_matplotlib_plot() {
+    let app = app();
+
+    let code = r#"
+import matplotlib.pyplot as plt
+plt.plot([1, 2, 3], [1, 2, 3])
+plt.show()
+"#;
+
+    let response = app
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/exec")
+                .header("content-type", "application/json")
+                .body(Body::from(serde_json::to_string(&CommandRequest {
+                    command: code.to_string(),
+                    language: Some("python".to_string()),
+                    context: None,
+                }).unwrap()))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::OK);
+
+    let body = response.into_body().collect().await.unwrap().to_bytes();
+    let resp: CommandResponse = serde_json::from_slice(&body).unwrap();
+    
+    if resp.status != Some(0) {
+        println!("Stderr: {}", resp.stderr);
+        println!("Stdout: {}", resp.stdout);
+    }
+    assert_eq!(resp.status, Some(0));
+    assert!(resp.display_data.is_some());
+    let display_data = resp.display_data.unwrap();
+    assert!(!display_data.is_empty());
+    
+    // Check for image data
+    let has_image = display_data.iter().any(|d| {
+        d.data.iter().any(|(k, v)| {
+            if k.starts_with("image/") {
+                if let Some(path) = v.as_str() {
+                    let p = std::path::Path::new(path);
+                    p.exists()
+                } else {
+                    false
+                }
+            } else {
+                false
+            }
+        })
+    });
+    assert!(has_image, "Should have image output and file should exist");
+}
+
+#[tokio::test]
+async fn test_python_display_json() {
+    let app = app();
+
+    let code = r#"
+class MyJSON:
+    def _repr_json_(self):
+        return {"foo": "bar"}
+
+display(MyJSON())
+"#;
+
+    let response = app
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/exec")
+                .header("content-type", "application/json")
+                .body(Body::from(serde_json::to_string(&CommandRequest {
+                    command: code.to_string(),
+                    language: Some("python".to_string()),
+                    context: None,
+                }).unwrap()))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::OK);
+
+    let body = response.into_body().collect().await.unwrap().to_bytes();
+    let resp: CommandResponse = serde_json::from_slice(&body).unwrap();
+    
+    assert_eq!(resp.status, Some(0));
+    assert!(resp.display_data.is_some());
+    let display_data = resp.display_data.unwrap();
+    
+    // Check for json data
+    let has_json = display_data.iter().any(|d| {
+        d.data.contains_key("application/json")
+    });
+    assert!(has_json, "Should have json output");
+}
+

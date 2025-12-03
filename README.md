@@ -8,6 +8,7 @@ enter for running cell
 :ra for running all cells
 y/p/P
 :export
+enter to open images in output cells
 nvim tree:
 space e
 space h/l
