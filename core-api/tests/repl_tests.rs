@@ -387,9 +387,20 @@ plt.show()
     
     // Check for image data
     let has_image = display_data.iter().any(|d| {
-        d.data.keys().any(|k| k.starts_with("image/"))
+        d.data.iter().any(|(k, v)| {
+            if k.starts_with("image/") {
+                if let Some(path) = v.as_str() {
+                    let p = std::path::Path::new(path);
+                    p.exists()
+                } else {
+                    false
+                }
+            } else {
+                false
+            }
+        })
     });
-    assert!(has_image, "Should have image output");
+    assert!(has_image, "Should have image output and file should exist");
 }
 
 #[tokio::test]
@@ -426,11 +437,6 @@ display(MyJSON())
     let resp: CommandResponse = serde_json::from_slice(&body).unwrap();
     
     assert_eq!(resp.status, Some(0));
-    
-    if resp.display_data.is_none() {
-        println!("Stderr: {}", resp.stderr);
-        println!("Stdout: {}", resp.stdout);
-    }
     assert!(resp.display_data.is_some());
     let display_data = resp.display_data.unwrap();
     

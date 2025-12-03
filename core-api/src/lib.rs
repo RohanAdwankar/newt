@@ -7,6 +7,7 @@ use std::process::Command;
 use tower_http::cors::CorsLayer;
 use regex::Regex;
 use std::collections::HashSet;
+use directories::ProjectDirs;
 
 #[derive(Deserialize, Serialize)]
 pub struct CommandRequest {
@@ -280,8 +281,21 @@ finally:
     let file_path = temp_dir.join(&file_name);
     
     // Create a directory for outputs
+    // Use a persistent directory in the standard data directory
+    let images_dir = if let Some(proj_dirs) = ProjectDirs::from("com", "newt", "newt") {
+        let data_dir = proj_dirs.data_dir();
+        data_dir.join("images")
+    } else {
+        // Fallback to temp dir if we can't find a data dir
+        std::env::temp_dir().join("newt_images")
+    };
+
+    if !images_dir.exists() {
+        let _ = std::fs::create_dir_all(&images_dir);
+    }
+    
     let output_dir_name = format!("newt_output_{}", uuid::Uuid::new_v4());
-    let output_dir = temp_dir.join(&output_dir_name);
+    let output_dir = images_dir.join(&output_dir_name);
     if let Err(e) = std::fs::create_dir(&output_dir) {
          return Json(CommandResponse {
             stdout: "".to_string(),
