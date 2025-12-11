@@ -654,39 +654,41 @@ async fn run_app<B: Backend + std::io::Write>(terminal: &mut Terminal<B>, app: &
                                         app.pending_delete = false;
                                         // Edit current cell
                                         if let Some(i) = app.list_state.selected() {
-                                            let cell = &app.cells[i];
-                                            match cell.cell_type {
-                                                CellType::Shell => {
-                                                    app.input = cell.content.clone();
-                                                    app.input_mode = InputMode::Editing;
-                                                }
-                                                _ => {
-                                                    // Open editor for all code cells
-                                                    let content = cell.content.clone();
-                                                    let ext = match cell.cell_type {
-                                                        CellType::Rust => ".rs",
-                                                        CellType::Python => ".py",
-                                                        CellType::JavaScript => ".js",
-                                                        CellType::TypeScript => ".ts",
-                                                        CellType::C => ".c",
-                                                        CellType::Cpp => ".cpp",
-                                                        CellType::Go => ".go",
-                                                        CellType::Shell => ".sh",
-                                                    };
-                                                    
-                                                    // Suspend TUI
-                                                    disable_raw_mode()?;
-                                                    execute!(terminal.backend_mut(), LeaveAlternateScreen)?;
-                                                    
-                                                    let new_content = open_editor(&content, ext)?;
-                                                    
-                                                    // Resume TUI
-                                                    execute!(terminal.backend_mut(), EnterAlternateScreen)?;
-                                                    enable_raw_mode()?;
-                                                    terminal.clear()?; // Force redraw
+                                            let cell_idx = i / 2;
+                                            if let Some(cell) = app.cells.get(cell_idx) {
+                                                match cell.cell_type {
+                                                    CellType::Shell => {
+                                                        app.input = cell.content.clone();
+                                                        app.input_mode = InputMode::Editing;
+                                                    }
+                                                    _ => {
+                                                        // Open editor for all code cells
+                                                        let content = cell.content.clone();
+                                                        let ext = match cell.cell_type {
+                                                            CellType::Rust => ".rs",
+                                                            CellType::Python => ".py",
+                                                            CellType::JavaScript => ".js",
+                                                            CellType::TypeScript => ".ts",
+                                                            CellType::C => ".c",
+                                                            CellType::Cpp => ".cpp",
+                                                            CellType::Go => ".go",
+                                                            CellType::Shell => ".sh",
+                                                        };
+                                                        
+                                                        // Suspend TUI
+                                                        disable_raw_mode()?;
+                                                        execute!(terminal.backend_mut(), LeaveAlternateScreen)?;
+                                                        
+                                                        let new_content = open_editor(&content, ext)?;
+                                                        
+                                                        // Resume TUI
+                                                        execute!(terminal.backend_mut(), EnterAlternateScreen)?;
+                                                        enable_raw_mode()?;
+                                                        terminal.clear()?; // Force redraw
 
-                                                    if let Some(cell) = app.current_cell_mut() {
-                                                        cell.content = new_content;
+                                                        if let Some(cell) = app.current_cell_mut() {
+                                                            cell.content = new_content;
+                                                        }
                                                     }
                                                 }
                                             }
