@@ -48,6 +48,8 @@ pub struct Cell {
     pub content: String,
     pub output: String,
     pub cell_type: CellType,
+    #[serde(default)]
+    pub polling_interval: Option<u64>, // Interval in seconds
 }
 
 #[derive(Serialize, Deserialize, Debug)]

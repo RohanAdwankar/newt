@@ -73,6 +73,10 @@ struct Cell {
     content: String,
     output: String,
     cell_type: CellType,
+    #[serde(default)]
+    polling_interval: Option<u64>, // Interval in seconds
+    #[serde(default)]
+    last_run: Option<u64>, // Timestamp in seconds
 }
 
 struct App {
@@ -92,6 +96,7 @@ struct App {
     clipboard_file: Option<PathBuf>,
     status_message: Option<String>,
     rename_input: String,
+    polling_input: String,
 }
 
 #[derive(PartialEq)]
@@ -106,6 +111,7 @@ enum InputMode {
     Editing,
     Command,
     Renaming,
+    Polling,
 }
 
 impl App {
@@ -127,6 +133,7 @@ impl App {
             clipboard_file: None,
             status_message: None,
             rename_input: String::new(),
+            polling_input: String::new(),
         };
 
         // Always refresh file list for sidebar
@@ -192,6 +199,8 @@ impl App {
             content: String::new(),
             output: String::new(),
             cell_type,
+            polling_interval: None,
+            last_run: None,
         });
         // Select the input of the new cell
         self.list_state.select(Some(index * 2));
@@ -363,6 +372,56 @@ async fn run_app<B: Backend + std::io::Write>(terminal: &mut Terminal<B>, app: &
     let client = reqwest::Client::new();
 
     loop {
+        // Check polling cells
+        let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_secs();
+        let mut indices_to_run = Vec::new();
+        for (i, cell) in app.cells.iter().enumerate() {
+            if let Some(interval) = cell.polling_interval {
+                if let Some(last) = cell.last_run {
+                    if now >= last + interval {
+                        indices_to_run.push(i);
+                    }
+                } else {
+                    indices_to_run.push(i);
+                }
+            }
+        }
+
+        for i in indices_to_run {
+            if let Some(cell) = app.cells.get_mut(i) {
+                cell.last_run = Some(now);
+            }
+            
+            if let Some(req) = app.get_run_request(i) {
+                let client = client.clone();
+                let res = client.post("http://127.0.0.1:3000/exec")
+                    .json(&req)
+                    .send()
+                    .await;
+
+                match res {
+                    Ok(resp) => {
+                        if let Ok(body) = resp.json::<CommandResponse>().await {
+                            let mut output = format!("{}{}", body.stdout, body.stderr);
+                            if let Some(display_data) = body.display_data {
+                                for data in display_data {
+                                    if let Some(image_path) = data.data.get("image/png").or(data.data.get("image/svg+xml")) {
+                                        if let Some(path_str) = image_path.as_str() {
+                                            output.push_str(&format!("\n[Image: {}]", path_str));
+                                        }
+                                    }
+                                }
+                            }
+                            app.update_cell_output(i, output);
+                        }
+                    }
+                    Err(e) => {
+                        app.update_cell_output(i, format!("Error connecting to server: {}", e));
+                    }
+                }
+            }
+        }
+
         terminal.draw(|f| ui(f, app))?;
 
         if event::poll(std::time::Duration::from_millis(100))? {
@@ -586,6 +645,11 @@ async fn run_app<B: Backend + std::io::Write>(terminal: &mut Terminal<B>, app: &
                                             app.pending_delete = true;
                                         }
                                     }
+                                    KeyCode::Char('r') => {
+                                        app.input_mode = InputMode::Polling;
+                                        app.polling_input.clear();
+                                        app.polling_input.push('r');
+                                    }
                                     KeyCode::Char('i') => {
                                         app.pending_delete = false;
                                         // Edit current cell
@@ -783,6 +847,47 @@ async fn run_app<B: Backend + std::io::Write>(terminal: &mut Terminal<B>, app: &
                         KeyCode::Esc => {
                             app.input_mode = InputMode::Normal;
                             app.command_input.clear();
+                        }
+                        _ => {}
+                    },
+                    InputMode::Polling => match key.code {
+                        KeyCode::Char(c) => {
+                            app.polling_input.push(c);
+                        }
+                        KeyCode::Enter => {
+                            if let Some(i) = app.list_state.selected() {
+                                let cell_idx = i / 2;
+                                if let Some(cell) = app.cells.get_mut(cell_idx) {
+                                    let input = &app.polling_input;
+                                    if input == "r/" {
+                                        cell.polling_interval = None;
+                                        app.status_message = Some("Polling disabled".to_string());
+                                    } else if input.starts_with("rm") {
+                                        if let Ok(val) = input[2..].parse::<u64>() {
+                                            cell.polling_interval = Some(val * 60);
+                                            app.status_message = Some(format!("Polling set to {}s", val * 60));
+                                        }
+                                    } else if input.starts_with("rh") {
+                                        if let Ok(val) = input[2..].parse::<u64>() {
+                                            cell.polling_interval = Some(val * 3600);
+                                            app.status_message = Some(format!("Polling set to {}s", val * 3600));
+                                        }
+                                    } else if input.starts_with('r') {
+                                        if let Ok(val) = input[1..].parse::<u64>() {
+                                            cell.polling_interval = Some(val);
+                                            app.status_message = Some(format!("Polling set to {}s", val));
+                                        }
+                                    }
+                                }
+                            }
+                            app.input_mode = InputMode::Normal;
+                        }
+                        KeyCode::Esc => {
+                            app.input_mode = InputMode::Normal;
+                            app.polling_input.clear();
+                        }
+                        KeyCode::Backspace => {
+                            app.polling_input.pop();
                         }
                         _ => {}
                     },
@@ -1072,6 +1177,11 @@ fn ui(f: &mut Frame, app: &App) {
         InputMode::Command => {
             let input_block = Paragraph::new(format!(":{}", app.command_input))
                 .style(Style::default().fg(Color::Cyan));
+            f.render_widget(input_block, bottom_bar_area);
+        }
+        InputMode::Polling => {
+            let input_block = Paragraph::new(format!("{}", app.polling_input))
+                .style(Style::default().fg(Color::Magenta));
             f.render_widget(input_block, bottom_bar_area);
         }
         InputMode::Normal => {
