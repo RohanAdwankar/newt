@@ -814,7 +814,46 @@ pub fn app() -> Router {
         .route("/files/save", post(save_file))
         .route("/files/rename", post(rename_file))
         .route("/files/copy", post(copy_file))
+        .route("/config", get(get_config).post(update_config))
         .layer(CorsLayer::permissive())
+}
+
+#[derive(Serialize, Deserialize, Default, Debug)]
+pub struct Config {
+    pub theme: Option<String>,
+}
+
+pub async fn get_config() -> Json<Config> {
+    let mut path = get_app_dir();
+    path.push("config.json");
+    if let Ok(content) = fs::read_to_string(&path) {
+        if let Ok(config) = serde_json::from_str(&content) {
+            return Json(config);
+        }
+    }
+    Json(Config::default())
+}
+
+pub async fn update_config(Json(config): Json<Config>) -> Json<String> {
+    let mut path = get_app_dir();
+    path.push("config.json");
+    
+    // Merge with existing config if possible
+    let mut final_config = config;
+    if let Ok(content) = fs::read_to_string(&path) {
+        if let Ok(existing) = serde_json::from_str::<Config>(&content) {
+            if final_config.theme.is_none() {
+                final_config.theme = existing.theme;
+            }
+        }
+    }
+
+    if let Ok(json) = serde_json::to_string_pretty(&final_config) {
+        if fs::write(path, json).is_ok() {
+            return Json("OK".to_string());
+        }
+    }
+    Json("Error saving config".to_string())
 }
 
 pub async fn list_files() -> Json<Vec<String>> {
