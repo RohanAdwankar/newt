@@ -1122,6 +1122,22 @@ fn ui(f: &mut Frame, app: &App) {
             CellType::Go => "Go",
         };
         
+        let countdown = if let Some(interval) = cell.polling_interval {
+            if let Some(last) = cell.last_run {
+                let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_secs();
+                let next_run = last + interval;
+                if next_run > now {
+                    format!(" Executing in {}s...", next_run - now)
+                } else {
+                    " Executing...".to_string()
+                }
+            } else {
+                " Executing...".to_string()
+            }
+        } else {
+            "".to_string()
+        };
+
         let content = if cell.content.is_empty() {
             "(empty)"
         } else {
@@ -1135,7 +1151,7 @@ fn ui(f: &mut Frame, app: &App) {
         };
 
         let lines = vec![
-            Line::from(Span::styled(format!("[{}] {}", header, cell.id), style)),
+            Line::from(Span::styled(format!("[{}] {}{}", header, cell.id, countdown), style)),
             Line::from(format!("In: {}", content)),
         ];
         list_items.push(ListItem::new(lines));
