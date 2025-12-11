@@ -1187,7 +1187,7 @@ fn ui(f: &mut Frame, app: &App) {
     match app.input_mode {
         InputMode::Editing => {
             if let Some(i) = app.list_state.selected() {
-                if let Some(cell) = app.cells.get(i) {
+                if let Some(cell) = app.cells.get(i / 2) {
                     if cell.cell_type == CellType::Shell {
                         let area = editor_area; // Use editor area for input positioning
                         let input_area = Rect::new(area.x, area.y + area.height.saturating_sub(3), area.width, 3);
