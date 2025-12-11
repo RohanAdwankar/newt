@@ -1,4 +1,5 @@
 use clap::Parser;
+use arboard::Clipboard;
 use crossterm::{
     event::{self, DisableMouseCapture, EnableMouseCapture, Event, KeyCode, KeyboardEnhancementFlags, PushKeyboardEnhancementFlags, PopKeyboardEnhancementFlags},
     execute,
@@ -46,15 +47,12 @@ struct ExportResponse {
 struct CommandResponse {
     stdout: String,
     stderr: String,
-    #[allow(dead_code)]
-    status: Option<i32>,
     display_data: Option<Vec<DisplayData>>,
 }
 
 #[derive(Deserialize, Debug)]
 struct DisplayData {
     data: std::collections::HashMap<String, serde_json::Value>,
-    metadata: std::collections::HashMap<String, serde_json::Value>,
 }
 
 #[derive(Clone, PartialEq, Serialize, Deserialize)]
@@ -195,20 +193,28 @@ impl App {
             output: String::new(),
             cell_type,
         });
-        self.list_state.select(Some(index));
+        // Select the input of the new cell
+        self.list_state.select(Some(index * 2));
         self.input.clear();
         self.input_mode = InputMode::Normal;
     }
 
     fn delete_current_cell(&mut self) {
         if let Some(i) = self.list_state.selected() {
+            let cell_idx = i / 2;
             if self.cells.len() > 0 {
-                self.cells.remove(i);
+                self.cells.remove(cell_idx);
                 if self.cells.is_empty() {
                     // Always keep at least one cell
                     self.add_cell(CellType::Shell);
-                } else if i >= self.cells.len() {
-                    self.list_state.select(Some(self.cells.len() - 1));
+                } else {
+                    // Select the previous cell or the same index if it exists
+                    let new_idx = if cell_idx >= self.cells.len() {
+                        self.cells.len() - 1
+                    } else {
+                        cell_idx
+                    };
+                    self.list_state.select(Some(new_idx * 2));
                 }
             }
         }
@@ -216,7 +222,8 @@ impl App {
 
     fn current_cell_mut(&mut self) -> Option<&mut Cell> {
         if let Some(i) = self.list_state.selected() {
-            self.cells.get_mut(i)
+            let cell_idx = i / 2;
+            self.cells.get_mut(cell_idx)
         } else {
             None
         }
@@ -501,9 +508,20 @@ async fn run_app<B: Backend + std::io::Write>(terminal: &mut Terminal<B>, app: &
                                 match key.code {
                                     KeyCode::Char('y') => {
                                         if let Some(i) = app.list_state.selected() {
-                                            if let Some(cell) = app.cells.get(i) {
-                                                app.clipboard_cell = Some(cell.clone());
-                                                app.status_message = Some("Cell yanked".to_string());
+                                            let cell_idx = i / 2;
+                                            if let Some(cell) = app.cells.get(cell_idx) {
+                                                if i % 2 == 0 {
+                                                    app.clipboard_cell = Some(cell.clone());
+                                                    app.status_message = Some("Cell yanked".to_string());
+                                                } else if !cell.output.is_empty() {
+                                                    if let Ok(mut clipboard) = Clipboard::new() {
+                                                        if let Err(e) = clipboard.set_text(&cell.output) {
+                                                            app.status_message = Some(format!("Clipboard error: {}", e));
+                                                        } else {
+                                                            app.status_message = Some("Output copied to clipboard".to_string());
+                                                        }
+                                                    }
+                                                }
                                             }
                                         }
                                     }
@@ -512,7 +530,7 @@ async fn run_app<B: Backend + std::io::Write>(terminal: &mut Terminal<B>, app: &
                                             if let Some(i) = app.list_state.selected() {
                                                 let mut new_cell = cell.clone();
                                                 new_cell.id = uuid::Uuid::new_v4().to_string();
-                                                app.cells.insert(i + 1, new_cell);
+                                                app.cells.insert((i / 2) + 1, new_cell);
                                                 app.status_message = Some("Cell pasted".to_string());
                                             }
                                         }
@@ -522,7 +540,7 @@ async fn run_app<B: Backend + std::io::Write>(terminal: &mut Terminal<B>, app: &
                                             if let Some(i) = app.list_state.selected() {
                                                 let mut new_cell = cell.clone();
                                                 new_cell.id = uuid::Uuid::new_v4().to_string();
-                                                app.cells.insert(i, new_cell);
+                                                app.cells.insert(i / 2, new_cell);
                                                 app.status_message = Some("Cell pasted above".to_string());
                                             }
                                         }
@@ -533,7 +551,7 @@ async fn run_app<B: Backend + std::io::Write>(terminal: &mut Terminal<B>, app: &
                                     }
                                     KeyCode::Char('j') => {
                                         if let Some(i) = app.list_state.selected() {
-                                            if i < app.cells.len() - 1 {
+                                            if i < app.cells.len() * 2 - 1 {
                                                 app.list_state.select(Some(i + 1));
                                             }
                                         }
@@ -552,12 +570,12 @@ async fn run_app<B: Backend + std::io::Write>(terminal: &mut Terminal<B>, app: &
                                     }
                                     KeyCode::Char('o') => {
                                         if let Some(i) = app.list_state.selected() {
-                                            app.insert_cell(i + 1, CellType::Shell);
+                                            app.insert_cell((i / 2) + 1, CellType::Shell);
                                         }
                                     }
                                     KeyCode::Char('O') => {
                                         if let Some(i) = app.list_state.selected() {
-                                            app.insert_cell(i, CellType::Shell);
+                                            app.insert_cell(i / 2, CellType::Shell);
                                         }
                                     }
                                     KeyCode::Char('d') => {
