@@ -178,12 +178,26 @@ async fn test_rust_snippet_execution() {
 async fn test_python_statefulness() {
     let app = app();
 
-    // Simulate running two cells.
-    // Cell 1: x = 42
-    // Cell 2: print(x)
-    // We pass "x = 42" as context to Cell 2.
+    // Step 1: Set variable
+    let response1 = app.clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/exec")
+                .header("content-type", "application/json")
+                .body(Body::from(serde_json::to_string(&CommandRequest {
+                    command: "x = 42".to_string(),
+                    language: Some("python".to_string()),
+                    context: None,
+                }).unwrap()))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response1.status(), StatusCode::OK);
 
-    let response = app
+    // Step 2: Read variable
+    let response2 = app
         .oneshot(
             Request::builder()
                 .method("POST")
@@ -192,16 +206,16 @@ async fn test_python_statefulness() {
                 .body(Body::from(serde_json::to_string(&CommandRequest {
                     command: "print(x)".to_string(),
                     language: Some("python".to_string()),
-                    context: Some("x = 42".to_string()),
+                    context: None,
                 }).unwrap()))
                 .unwrap(),
         )
         .await
         .unwrap();
 
-    assert_eq!(response.status(), StatusCode::OK);
+    assert_eq!(response2.status(), StatusCode::OK);
 
-    let body = response.into_body().collect().await.unwrap().to_bytes();
+    let body = response2.into_body().collect().await.unwrap().to_bytes();
     let resp: CommandResponse = serde_json::from_slice(&body).unwrap();
     
     assert_eq!(resp.stdout.trim(), "42");
@@ -385,13 +399,14 @@ plt.show()
     let display_data = resp.display_data.unwrap();
     assert!(!display_data.is_empty());
     
-    // Check for image data
+    // Check for image data (Base64)
     let has_image = display_data.iter().any(|d| {
         d.data.iter().any(|(k, v)| {
             if k.starts_with("image/") {
-                if let Some(path) = v.as_str() {
-                    let p = std::path::Path::new(path);
-                    p.exists()
+                // In persistent kernel, we return Base64 string
+                if let Some(b64) = v.as_str() {
+                    // Just check it's a reasonably long string
+                    b64.len() > 100
                 } else {
                     false
                 }
@@ -400,7 +415,7 @@ plt.show()
             }
         })
     });
-    assert!(has_image, "Should have image output and file should exist");
+    assert!(has_image, "Should have image output (Base64)");
 }
 
 #[tokio::test]
