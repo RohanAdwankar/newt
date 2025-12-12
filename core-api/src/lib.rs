@@ -372,17 +372,11 @@ def _newt_display(obj, **kwargs):
         processed_data = {{}}
         for mime, content in data.items():
             if mime.startswith("image/"):
-                ext = "svg" if "svg" in mime else "png"
-                filename = f"newt_{{len(_newt_outputs)}}_{{os.getpid()}}.{{ext}}"
-                filepath = os.path.join(_newt_output_dir, filename)
-                
-                mode = "wb" if isinstance(content, bytes) else "w"
-                with open(filepath, mode) as f:
-                    if isinstance(content, bytes):
-                        f.write(content)
-                    else:
-                        f.write(content.encode('utf-8') if hasattr(content, 'encode') else content)
-                processed_data[mime] = filepath
+                if isinstance(content, bytes):
+                    b64 = base64.b64encode(content).decode('utf-8')
+                    processed_data[mime] = b64
+                else:
+                    processed_data[mime] = content
             else:
                 processed_data[mime] = content
         
@@ -406,14 +400,10 @@ if "matplotlib.pyplot" in sys.modules:
             from io import BytesIO
             buf = BytesIO()
             fig.savefig(buf, format='png')
+            b64 = base64.b64encode(buf.getvalue()).decode('utf-8')
             
-            filename = f"newt_mpl_{{i}}_{{os.getpid()}}.png"
-            filepath = os.path.join(_newt_output_dir, filename)
-            with open(filepath, "wb") as f:
-                f.write(buf.getvalue())
-                
             _newt_outputs.append({{
-                "data": {{"image/png": filepath}},
+                "data": {{"image/png": b64}},
                 "metadata": {{}}
             }})
             plt.close(i)
