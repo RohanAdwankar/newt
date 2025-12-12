@@ -935,3 +935,19 @@ pub async fn copy_file(Json(req): Json<CopyRequest>) -> Json<String> {
         Err(e) => Json(format!("Error: {}", e)),
     }
 }
+
+pub async fn delete_file(Json(req): Json<FilePath>) -> Json<String> {
+    let mut path = get_app_dir();
+    path.push(req.path);
+    if path.is_dir() {
+        match fs::remove_dir_all(path) {
+            Ok(_) => Json("OK".to_string()),
+            Err(e) => Json(format!("Error: {}", e)),
+        }
+    } else {
+        match fs::remove_file(path) {
+            Ok(_) => Json("OK".to_string()),
+            Err(e) => Json(format!("Error: {}", e)),
+        }
+    }
+}
