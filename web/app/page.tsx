@@ -35,6 +35,7 @@ export default function App() {
   const [theme, setTheme] = useState('dark');
   const [executionMode, setExecutionMode] = useState<ExecutionMode>('client');
   const [isBackendAvailable, setIsBackendAvailable] = useState(false);
+  const [vimMode, setVimMode] = useState(true);
   const spacePressedRef = useRef(false);
 
   // Helper to get primary selection (last selected)
@@ -89,7 +90,19 @@ export default function App() {
       setTheme(savedTheme);
       document.documentElement.setAttribute('data-theme', savedTheme);
     }
+    const savedVimMode = localStorage.getItem('newt_vim_mode');
+    if (savedVimMode) {
+        setVimMode(savedVimMode === 'true');
+    }
   }, []);
+
+  const toggleVimMode = () => {
+      setVimMode(prev => {
+          const next = !prev;
+          localStorage.setItem('newt_vim_mode', String(next));
+          return next;
+      });
+  };
 
   const handlePollingInput = (input: string) => {
     if (cells.length === 0) return;
@@ -256,57 +269,77 @@ export default function App() {
 
       // Normal Mode
       if (focus === 'editor') {
-        switch (e.key) {
-          case 'j':
+        // Common navigation keys (always active)
+        if (e.key === 'ArrowDown') {
+            e.preventDefault(); // Prevent scrolling
             setSelectedIndices(prev => {
                 const last = prev[prev.length - 1];
                 const next = Math.min(last + 1, cells.length - 1);
                 return [next];
             });
-            break;
-          case 'k':
+        } else if (e.key === 'ArrowUp') {
+            e.preventDefault(); // Prevent scrolling
             setSelectedIndices(prev => {
                 const last = prev[prev.length - 1];
                 const next = Math.max(last - 1, 0);
                 return [next];
             });
-            break;
-          case 'h':
-          case 'ArrowLeft':
+        } else if (e.key === 'ArrowLeft') {
+            e.preventDefault(); // Prevent scrolling
             if (showSidebar) setFocus('sidebar');
-            break;
-          case 'i':
-            if (cells.length > 0) setInputMode('editing');
-            break;
-          case 'r':
-            setInputMode('polling');
-            setPollingInput('r');
-            break;
-          case 'Enter':
+        } else if (e.key === 'Enter') {
             if (cells.length > 0) runCell(primaryIndex);
-            break;
-          case ':':
-            setInputMode('command');
-            setStatusMessage(null);
-            break;
-          case 'y':
-            copyCells();
-            break;
-          case 'p':
-            pasteCells(true); // below
-            break;
-          case 'P':
-            pasteCells(false); // above
-            break;
-          case 'o':
-            addCell(primaryIndex + 1);
-            break;
-          case 'O':
-            addCell(primaryIndex);
-            break;
-          case 'd':
-            deleteCells();
-            break;
+        }
+
+        if (vimMode) {
+            switch (e.key) {
+            case 'j':
+                setSelectedIndices(prev => {
+                    const last = prev[prev.length - 1];
+                    const next = Math.min(last + 1, cells.length - 1);
+                    return [next];
+                });
+                break;
+            case 'k':
+                setSelectedIndices(prev => {
+                    const last = prev[prev.length - 1];
+                    const next = Math.max(last - 1, 0);
+                    return [next];
+                });
+                break;
+            case 'h':
+                if (showSidebar) setFocus('sidebar');
+                break;
+            case 'i':
+                if (cells.length > 0) setInputMode('editing');
+                break;
+            case 'r':
+                setInputMode('polling');
+                setPollingInput('r');
+                break;
+            case ':':
+                setInputMode('command');
+                setStatusMessage(null);
+                break;
+            case 'y':
+                copyCells();
+                break;
+            case 'p':
+                pasteCells(true); // below
+                break;
+            case 'P':
+                pasteCells(false); // above
+                break;
+            case 'o':
+                addCell(primaryIndex + 1);
+                break;
+            case 'O':
+                addCell(primaryIndex);
+                break;
+            case 'd':
+                deleteCells();
+                break;
+            }
         }
       } else if (focus === 'sidebar') {
         const localCount = localFiles.length;
@@ -371,7 +404,7 @@ export default function App() {
         if (inputMode !== 'normal') return;
         
         if (e.key === ' ') {
-            e.preventDefault();
+            e.preventDefault(); // Prevent scrolling
             spacePressedRef.current = true;
             // Reset after 1s to prevent getting stuck
             setTimeout(() => { spacePressedRef.current = false; }, 1000);
@@ -821,6 +854,11 @@ export default function App() {
         onRunAll={runAllCells}
         executionMode={executionMode}
         onExecutionModeChange={setExecutionMode}
+        onToggleSidebar={() => setShowSidebar(prev => !prev)}
+        onToggleTheme={toggleTheme}
+        theme={theme}
+        vimMode={vimMode}
+        onToggleVimMode={toggleVimMode}
       />
       <div className="flex-1 flex overflow-hidden">
         <Sidebar 
