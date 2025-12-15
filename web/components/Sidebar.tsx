@@ -123,15 +123,6 @@ export const Sidebar: React.FC<SidebarProps> = ({
           </>
         )}
       </div>
-      <div className="p-2 border-t border-border-color">
-        <button 
-          onClick={onToggleTheme}
-          className="w-full flex items-center justify-center gap-2 p-2 rounded bg-bg-tertiary text-text-primary hover:bg-selection transition-colors"
-        >
-          {theme === 'dark' ? <Sun size={16} /> : <Moon size={16} />}
-          <span className="text-sm font-mono">{theme === 'dark' ? 'Light Mode' : 'Dark Mode'}</span>
-        </button>
-      </div>
     </div>
   );
 };

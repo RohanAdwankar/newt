@@ -214,6 +214,9 @@ export default function App() {
   useEffect(() => {
     const handleKeyDown = async (e: KeyboardEvent) => {
       if (inputMode === 'editing') {
+        if (e.key === 'Escape') {
+            setInputMode('normal');
+        }
         return;
       }
 
@@ -350,9 +353,11 @@ export default function App() {
 
         switch (e.key) {
           case 'j':
+          case 'ArrowDown':
             setSelectedFileIndex(prev => Math.min(prev + 1, totalItems - 1));
             break;
           case 'k':
+          case 'ArrowUp':
             setSelectedFileIndex(prev => Math.max(prev - 1, 0));
             break;
           case 'l':
