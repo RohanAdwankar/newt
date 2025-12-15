@@ -19,7 +19,7 @@ struct KernelRequest {
 }
 
 pub trait Kernel: Send + Sync {
-    fn execute(&mut self, code: String, language: Option<String>) -> Result<KernelResponse, String>;
+    fn execute(&mut self, code: String, language: Option<String>, context: Option<Vec<String>>) -> Result<KernelResponse, String>;
 }
 
 pub struct PythonKernel {
@@ -30,7 +30,7 @@ pub struct PythonKernel {
 }
 
 impl Kernel for PythonKernel {
-    fn execute(&mut self, code: String, _language: Option<String>) -> Result<KernelResponse, String> {
+    fn execute(&mut self, code: String, _language: Option<String>, _context: Option<Vec<String>>) -> Result<KernelResponse, String> {
         let req = KernelRequest { code, language: None };
         let json_req = serde_json::to_string(&req).map_err(|e| e.to_string())?;
         
@@ -148,12 +148,14 @@ def main():
             # But builtins.display is global. 
             builtins.display = _display
 
+            success = True
             with contextlib.redirect_stdout(stdout_capture), contextlib.redirect_stderr(stderr_capture):
                 try:
                     # Execute code in the persistent globals dictionary
                     exec(code, _newt_globals)
                 except Exception:
                     traceback.print_exc()
+                    success = False
 
             # Handle Matplotlib figures
             if plt:
@@ -171,7 +173,7 @@ def main():
             response = {{
                 "stdout": stdout_capture.getvalue(),
                 "stderr": stderr_capture.getvalue(),
-                "status": 0,
+                "status": 0 if success else 1,
                 "display_data": display_outputs if display_outputs else None
             }}
             
@@ -250,7 +252,7 @@ pub struct NodeKernel {
 }
 
 impl Kernel for NodeKernel {
-    fn execute(&mut self, code: String, language: Option<String>) -> Result<KernelResponse, String> {
+    fn execute(&mut self, code: String, language: Option<String>, _context: Option<Vec<String>>) -> Result<KernelResponse, String> {
         let req = KernelRequest { code, language };
         let json_req = serde_json::to_string(&req).map_err(|e| e.to_string())?;
         
@@ -403,61 +405,73 @@ pub fn get_or_init_node_kernel() -> Result<std::sync::MutexGuard<'static, Option
     Ok(kernel_guard)
 }
 
-pub struct RustKernel {
-    history: Vec<String>,
-}
+pub struct RustKernel;
 
 impl Kernel for RustKernel {
-    fn execute(&mut self, code: String, _language: Option<String>) -> Result<KernelResponse, String> {
-        let mut candidate_history = self.history.clone();
-        candidate_history.push(code.clone());
+    fn execute(&mut self, code: String, _language: Option<String>, context: Option<Vec<String>>) -> Result<KernelResponse, String> {
+        let mut full_history = context.unwrap_or_default();
+        full_history.push(code);
         
-        let source = self.construct_source(&candidate_history);
+        let source = self.construct_source(&full_history);
         
-        match self.compile_and_run(&source) {
-            Ok(response) => {
-                if response.status == Some(0) {
-                    self.history.push(code);
-                }
-                Ok(response)
-            }
-            Err(e) => {
-                Ok(KernelResponse {
-                    stdout: "".to_string(),
-                    stderr: e,
-                    status: Some(1),
-                    display_data: None,
-                })
-            }
-        }
+        self.compile_and_run(&source)
     }
 }
 
 impl RustKernel {
     pub fn new() -> Self {
-        Self { history: Vec::new() }
+        Self
+    }
+
+    pub fn clear(&mut self) {
+        // Stateless
     }
 
     fn construct_source(&self, history: &[String]) -> String {
         let mut items = Vec::new();
         let mut stmts = Vec::new();
+        let mut has_user_main = false;
         
         for block in history {
             let trimmed = block.trim();
             if trimmed.starts_with("fn ") || trimmed.starts_with("struct ") || trimmed.starts_with("enum ") || trimmed.starts_with("impl ") || trimmed.starts_with("use ") || trimmed.starts_with("mod ") || trimmed.starts_with("type ") {
+                if trimmed.starts_with("fn main") {
+                    has_user_main = true;
+                }
                 items.push(block.as_str());
             } else {
                 stmts.push(block.as_str());
             }
         }
         
-        format!(r#"
+        if !stmts.is_empty() {
+            // If we have statements, we must wrap them in a main function.
+            // To avoid conflict, we filter out any user-provided main.
+            let filtered_items: Vec<&str> = items.into_iter()
+                .filter(|i| !i.trim().starts_with("fn main"))
+                .collect();
+                
+            return format!(r#"
 {}
 
 fn main() {{
 {}
 }}
-"#, items.join("\n"), stmts.join("\n"))
+"#, filtered_items.join("\n"), stmts.join("\n"));
+        }
+        
+        if has_user_main {
+            // User provided main and no loose statements. Use user's main.
+            return items.join("\n");
+        }
+        
+        // No statements and no user main. Generate empty main to ensure compilation.
+        format!(r#"
+{}
+
+fn main() {{
+}}
+"#, items.join("\n"))
     }
 
     fn compile_and_run(&self, source: &str) -> Result<KernelResponse, String> {
@@ -507,39 +521,26 @@ pub fn get_or_init_rust_kernel() -> Result<std::sync::MutexGuard<'static, Option
     Ok(kernel_guard)
 }
 
-pub struct CKernel {
-    history: Vec<String>,
-}
+pub struct CKernel;
 
 impl Kernel for CKernel {
-    fn execute(&mut self, code: String, _language: Option<String>) -> Result<KernelResponse, String> {
-        let mut candidate_history = self.history.clone();
-        candidate_history.push(code.clone());
+    fn execute(&mut self, code: String, _language: Option<String>, context: Option<Vec<String>>) -> Result<KernelResponse, String> {
+        let mut full_history = context.unwrap_or_default();
+        full_history.push(code);
         
-        let source = self.construct_source(&candidate_history);
+        let source = self.construct_source(&full_history);
         
-        match self.compile_and_run(&source) {
-            Ok(response) => {
-                if response.status == Some(0) {
-                    self.history.push(code);
-                }
-                Ok(response)
-            }
-            Err(e) => {
-                Ok(KernelResponse {
-                    stdout: "".to_string(),
-                    stderr: e,
-                    status: Some(1),
-                    display_data: None,
-                })
-            }
-        }
+        self.compile_and_run(&source)
     }
 }
 
 impl CKernel {
     pub fn new() -> Self {
-        Self { history: Vec::new() }
+        Self
+    }
+
+    pub fn clear(&mut self) {
+        // Stateless
     }
 
     fn construct_source(&self, history: &[String]) -> String {
@@ -620,39 +621,26 @@ pub fn get_or_init_c_kernel() -> Result<std::sync::MutexGuard<'static, Option<CK
     Ok(kernel_guard)
 }
 
-pub struct CppKernel {
-    history: Vec<String>,
-}
+pub struct CppKernel;
 
 impl Kernel for CppKernel {
-    fn execute(&mut self, code: String, _language: Option<String>) -> Result<KernelResponse, String> {
-        let mut candidate_history = self.history.clone();
-        candidate_history.push(code.clone());
+    fn execute(&mut self, code: String, _language: Option<String>, context: Option<Vec<String>>) -> Result<KernelResponse, String> {
+        let mut full_history = context.unwrap_or_default();
+        full_history.push(code);
         
-        let source = self.construct_source(&candidate_history);
+        let source = self.construct_source(&full_history);
         
-        match self.compile_and_run(&source) {
-            Ok(response) => {
-                if response.status == Some(0) {
-                    self.history.push(code);
-                }
-                Ok(response)
-            }
-            Err(e) => {
-                Ok(KernelResponse {
-                    stdout: "".to_string(),
-                    stderr: e,
-                    status: Some(1),
-                    display_data: None,
-                })
-            }
-        }
+        self.compile_and_run(&source)
     }
 }
 
 impl CppKernel {
     pub fn new() -> Self {
-        Self { history: Vec::new() }
+        Self
+    }
+
+    pub fn clear(&mut self) {
+        // Stateless
     }
 
     fn construct_source(&self, history: &[String]) -> String {
@@ -734,39 +722,26 @@ pub fn get_or_init_cpp_kernel() -> Result<std::sync::MutexGuard<'static, Option<
     Ok(kernel_guard)
 }
 
-pub struct GoKernel {
-    history: Vec<String>,
-}
+pub struct GoKernel;
 
 impl Kernel for GoKernel {
-    fn execute(&mut self, code: String, _language: Option<String>) -> Result<KernelResponse, String> {
-        let mut candidate_history = self.history.clone();
-        candidate_history.push(code.clone());
+    fn execute(&mut self, code: String, _language: Option<String>, context: Option<Vec<String>>) -> Result<KernelResponse, String> {
+        let mut full_history = context.unwrap_or_default();
+        full_history.push(code);
         
-        let source = self.construct_source(&candidate_history);
+        let source = self.construct_source(&full_history);
         
-        match self.compile_and_run(&source) {
-            Ok(response) => {
-                if response.status == Some(0) {
-                    self.history.push(code);
-                }
-                Ok(response)
-            }
-            Err(e) => {
-                Ok(KernelResponse {
-                    stdout: "".to_string(),
-                    stderr: e,
-                    status: Some(1),
-                    display_data: None,
-                })
-            }
-        }
+        self.compile_and_run(&source)
     }
 }
 
 impl GoKernel {
     pub fn new() -> Self {
-        Self { history: Vec::new() }
+        Self
+    }
+
+    pub fn clear(&mut self) {
+        // Stateless
     }
 
     fn construct_source(&self, history: &[String]) -> String {

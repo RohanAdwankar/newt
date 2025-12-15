@@ -18,6 +18,14 @@ Currently supported languages are: js, ts, py, cpp
 ### Server Side Mode
 To enable server side mode activate the server and connect to it from the GUI.
 To use the main site you will have to enable "Local network access" in your browser settings to the left of the url.
+To install the server via cargo:
+```bash
+cargo install newts
+```
+To start the server run:
+```bash
+newts --serve
+```
 
 ## TUI
 To run the TUI first start the server then start the TUI client.

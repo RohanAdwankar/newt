@@ -2,9 +2,34 @@ use axum::{
     body::Body,
     http::{Request, StatusCode},
 };
-use core_api::{app, CommandRequest, CommandResponse};
+use newts::server::app;
+use newts::{CommandRequest, CommandResponse};
+use newts::server::kernel::{RUST_KERNEL, C_KERNEL, CPP_KERNEL, GO_KERNEL};
 use tower::ServiceExt; // for `oneshot`
 use http_body_util::BodyExt; // for `collect`
+
+fn clear_kernels() {
+    if let Ok(mut guard) = RUST_KERNEL.lock() {
+        if let Some(kernel) = guard.as_mut() {
+            kernel.clear();
+        }
+    }
+    if let Ok(mut guard) = C_KERNEL.lock() {
+        if let Some(kernel) = guard.as_mut() {
+            kernel.clear();
+        }
+    }
+    if let Ok(mut guard) = CPP_KERNEL.lock() {
+        if let Some(kernel) = guard.as_mut() {
+            kernel.clear();
+        }
+    }
+    if let Ok(mut guard) = GO_KERNEL.lock() {
+        if let Some(kernel) = guard.as_mut() {
+            kernel.clear();
+        }
+    }
+}
 
 #[tokio::test]
 async fn test_echo_command() {
@@ -142,6 +167,7 @@ async fn test_quoted_arguments_fail() {
 
 #[tokio::test]
 async fn test_rust_snippet_execution() {
+    clear_kernels();
     let app = app();
 
     let code = r#"
@@ -223,6 +249,7 @@ async fn test_python_statefulness() {
 
 #[tokio::test]
 async fn test_rust_statefulness() {
+    clear_kernels();
     let app = app();
 
     // Cell 1: let x = 100;
@@ -238,7 +265,7 @@ async fn test_rust_statefulness() {
                 .body(Body::from(serde_json::to_string(&CommandRequest {
                     command: "println!(\"{}\", x);".to_string(),
                     language: Some("rust".to_string()),
-                    context: Some("let x = 100;".to_string()),
+                    context: Some(vec!["let x = 100;".to_string()]),
                 }).unwrap()))
                 .unwrap(),
         )
@@ -255,6 +282,7 @@ async fn test_rust_statefulness() {
 
 #[tokio::test]
 async fn test_c_statefulness() {
+    clear_kernels();
     let app = app();
 
     // Cell 1: int x = 55; (Global)
@@ -270,7 +298,7 @@ async fn test_c_statefulness() {
                 .body(Body::from(serde_json::to_string(&CommandRequest {
                     command: "int main() { printf(\"%d\", x); return 0; }".to_string(),
                     language: Some("c".to_string()),
-                    context: Some("#include <stdio.h>\nint x = 55;".to_string()),
+                    context: Some(vec!["#include <stdio.h>\nint x = 55;".to_string()]),
                 }).unwrap()))
                 .unwrap(),
         )
@@ -287,6 +315,7 @@ async fn test_c_statefulness() {
 
 #[tokio::test]
 async fn test_rust_mixed_context() {
+    clear_kernels();
     let app = app();
 
     // Scenario 1: Context has main, Code is snippet
@@ -299,7 +328,7 @@ async fn test_rust_mixed_context() {
                 .body(Body::from(serde_json::to_string(&CommandRequest {
                     command: "println!(\"hi\");".to_string(),
                     language: Some("rust".to_string()),
-                    context: Some("fn main() { println!(\"Hello, world!\"); }".to_string()),
+                    context: Some(vec!["fn main() { println!(\"Hello, world!\"); }".to_string()]),
                 }).unwrap()))
                 .unwrap(),
         )
@@ -320,7 +349,7 @@ async fn test_rust_mixed_context() {
                 .body(Body::from(serde_json::to_string(&CommandRequest {
                     command: "println!(\"curr\");".to_string(),
                     language: Some("rust".to_string()),
-                    context: Some("println!(\"prev\");".to_string()),
+                    context: Some(vec!["println!(\"prev\");".to_string()]),
                 }).unwrap()))
                 .unwrap(),
         )
@@ -336,6 +365,7 @@ async fn test_rust_mixed_context() {
 
 #[tokio::test]
 async fn test_rust_comment_main() {
+    clear_kernels();
     let app = app();
 
     let response = app.clone()
@@ -347,7 +377,7 @@ async fn test_rust_comment_main() {
                 .body(Body::from(serde_json::to_string(&CommandRequest {
                     command: "println!(\"hi\");".to_string(),
                     language: Some("rust".to_string()),
-                    context: Some("// fn main".to_string()),
+                    context: Some(vec!["// fn main".to_string()]),
                 }).unwrap()))
                 .unwrap(),
         )

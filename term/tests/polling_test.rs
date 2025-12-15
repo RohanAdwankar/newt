@@ -1,4 +1,4 @@
-use term_ui::{App, CellType, Cell};
+use newts::{App, CellType, Cell};
 use std::thread;
 use std::time::Duration;
 use std::fs;

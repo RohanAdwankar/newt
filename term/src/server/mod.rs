@@ -11,6 +11,8 @@ pub mod kernel;
 use std::process::Command;
 use tower_http::cors::CorsLayer;
 
+use crate::{CommandRequest, CommandResponse, DisplayData, CellType, Cell, Notebook, ExportResponse};
+
 //TODO: need a better way for newt cloud to operate with file system than this lol. i think the
 //right approach is to in core-api it should save which directory it is started from and then
 //whenever either of the frontends try to connect with it then it will use that as the base dir.
@@ -26,59 +28,6 @@ fn get_app_dir() -> PathBuf {
     } else {
         PathBuf::from(".")
     }
-}
-
-#[derive(Deserialize, Serialize)]
-pub struct CommandRequest {
-    pub command: String,
-    pub language: Option<String>,
-    pub context: Option<String>,
-}
-
-#[derive(Serialize, Deserialize, Debug)]
-pub struct CommandResponse {
-    pub stdout: String,
-    pub stderr: String,
-    pub status: Option<i32>,
-    pub display_data: Option<Vec<DisplayData>>,
-}
-
-#[derive(Serialize, Deserialize, Debug)]
-pub struct DisplayData {
-    pub data: std::collections::HashMap<String, serde_json::Value>,
-    pub metadata: std::collections::HashMap<String, serde_json::Value>,
-}
-
-#[derive(Clone, PartialEq, Serialize, Deserialize, Debug)]
-pub enum CellType {
-    Shell,
-    Rust,
-    Python,
-    JavaScript,
-    TypeScript,
-    C,
-    Cpp,
-    Go,
-}
-
-#[derive(Clone, Serialize, Deserialize, Debug)]
-pub struct Cell {
-    pub id: String,
-    pub content: String,
-    pub output: String,
-    pub cell_type: CellType,
-    #[serde(default)]
-    pub polling_interval: Option<u64>, // Interval in seconds
-}
-
-#[derive(Serialize, Deserialize, Debug)]
-pub struct Notebook {
-    pub cells: Vec<Cell>,
-}
-
-#[derive(Serialize, Deserialize, Debug)]
-pub struct ExportResponse {
-    pub markdown: String,
 }
 
 pub async fn execute_command(Json(payload): Json<CommandRequest>) -> Json<CommandResponse> {
@@ -162,12 +111,12 @@ fn execute_shell(command: String) -> Json<CommandResponse> {
     }
 }
 
-fn execute_rust(code: String, _context: Option<String>) -> Json<CommandResponse> {
-    use crate::kernel::Kernel;
+fn execute_rust(code: String, context: Option<Vec<String>>) -> Json<CommandResponse> {
+    use crate::server::kernel::{self, Kernel};
     match kernel::get_or_init_rust_kernel() {
         Ok(mut kernel_guard) => {
             if let Some(kernel) = kernel_guard.as_mut() {
-                match kernel.execute(code, None) {
+                match kernel.execute(code, None, context) {
                     Ok(response) => Json(CommandResponse {
                         stdout: response.stdout,
                         stderr: response.stderr,
@@ -201,13 +150,13 @@ fn execute_rust(code: String, _context: Option<String>) -> Json<CommandResponse>
 
 
 
-fn execute_python(code: String, _context: Option<String>) -> Json<CommandResponse> {
-    use crate::kernel::Kernel;
+fn execute_python(code: String, context: Option<Vec<String>>) -> Json<CommandResponse> {
+    use crate::server::kernel::{self, Kernel};
     // Try to use persistent kernel
     match kernel::get_or_init_python_kernel() {
         Ok(mut kernel_guard) => {
             if let Some(kernel) = kernel_guard.as_mut() {
-                match kernel.execute(code, None) {
+                match kernel.execute(code, None, context) {
                     Ok(response) => {
                         return Json(CommandResponse {
                             stdout: response.stdout,
@@ -247,12 +196,12 @@ fn execute_python(code: String, _context: Option<String>) -> Json<CommandRespons
 
 
 
-fn execute_javascript(code: String, _context: Option<String>) -> Json<CommandResponse> {
-    use crate::kernel::Kernel;
+fn execute_javascript(code: String, context: Option<Vec<String>>) -> Json<CommandResponse> {
+    use crate::server::kernel::{self, Kernel};
     match kernel::get_or_init_node_kernel() {
         Ok(mut kernel_guard) => {
             if let Some(kernel) = kernel_guard.as_mut() {
-                match kernel.execute(code, None) {
+                match kernel.execute(code, None, context) {
                     Ok(response) => Json(CommandResponse {
                         stdout: response.stdout,
                         stderr: response.stderr,
@@ -284,11 +233,11 @@ fn execute_javascript(code: String, _context: Option<String>) -> Json<CommandRes
     }
 }
 
-fn execute_typescript(code: String, context: Option<String>) -> Json<CommandResponse> {
+fn execute_typescript(code: String, context: Option<Vec<String>>) -> Json<CommandResponse> {
     // TypeScript still uses the old stateless way for now, or we could transpile and send to NodeKernel
     // For now, keep stateless to ensure it works.
     let full_code = if let Some(ctx) = context {
-        format!("{}\n{}", ctx, code)
+        format!("{}\n{}", ctx.join("\n"), code)
     } else {
         code
     };
@@ -327,12 +276,12 @@ fn execute_typescript(code: String, context: Option<String>) -> Json<CommandResp
     }
 }
 
-fn execute_c(code: String, _context: Option<String>) -> Json<CommandResponse> {
-    use crate::kernel::Kernel;
+fn execute_c(code: String, context: Option<Vec<String>>) -> Json<CommandResponse> {
+    use crate::server::kernel::{self, Kernel};
     match kernel::get_or_init_c_kernel() {
         Ok(mut kernel_guard) => {
             if let Some(kernel) = kernel_guard.as_mut() {
-                match kernel.execute(code, None) {
+                match kernel.execute(code, None, context) {
                     Ok(response) => Json(CommandResponse {
                         stdout: response.stdout,
                         stderr: response.stderr,
@@ -364,12 +313,12 @@ fn execute_c(code: String, _context: Option<String>) -> Json<CommandResponse> {
     }
 }
 
-fn execute_cpp(code: String, _context: Option<String>) -> Json<CommandResponse> {
-    use crate::kernel::Kernel;
+fn execute_cpp(code: String, context: Option<Vec<String>>) -> Json<CommandResponse> {
+    use crate::server::kernel::{self, Kernel};
     match kernel::get_or_init_cpp_kernel() {
         Ok(mut kernel_guard) => {
             if let Some(kernel) = kernel_guard.as_mut() {
-                match kernel.execute(code, None) {
+                match kernel.execute(code, None, context) {
                     Ok(response) => Json(CommandResponse {
                         stdout: response.stdout,
                         stderr: response.stderr,
@@ -401,12 +350,12 @@ fn execute_cpp(code: String, _context: Option<String>) -> Json<CommandResponse> 
     }
 }
 
-fn execute_go(code: String, _context: Option<String>) -> Json<CommandResponse> {
-    use crate::kernel::Kernel;
+fn execute_go(code: String, context: Option<Vec<String>>) -> Json<CommandResponse> {
+    use crate::server::kernel::{self, Kernel};
     match kernel::get_or_init_go_kernel() {
         Ok(mut kernel_guard) => {
             if let Some(kernel) = kernel_guard.as_mut() {
-                match kernel.execute(code, None) {
+                match kernel.execute(code, None, context) {
                     Ok(response) => Json(CommandResponse {
                         stdout: response.stdout,
                         stderr: response.stderr,

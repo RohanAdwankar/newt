@@ -18,6 +18,8 @@ use serde::{Deserialize, Serialize};
 use std::{error::Error, io, process::Command, path::PathBuf, fs};
 use std::io::Write;
 
+pub mod server;
+
 #[derive(Parser, Debug)]
 #[command(author, version, about, long_about = None)]
 struct Args {
@@ -30,36 +32,38 @@ struct Args {
     serve: bool,
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, Deserialize, Debug)]
 pub struct CommandRequest {
     pub command: String,
     pub language: Option<String>,
-    pub context: Option<String>,
+    pub context: Option<Vec<String>>,
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, Deserialize, Debug)]
 pub struct Notebook {
     pub cells: Vec<Cell>,
 }
 
-#[derive(Deserialize)]
-struct ExportResponse {
-    markdown: String,
+#[derive(Serialize, Deserialize, Debug)]
+pub struct ExportResponse {
+    pub markdown: String,
 }
 
-#[derive(Deserialize)]
-struct CommandResponse {
-    stdout: String,
-    stderr: String,
-    display_data: Option<Vec<DisplayData>>,
+#[derive(Serialize, Deserialize, Debug)]
+pub struct CommandResponse {
+    pub stdout: String,
+    pub stderr: String,
+    pub status: Option<i32>,
+    pub display_data: Option<Vec<DisplayData>>,
 }
 
-#[derive(Deserialize, Debug)]
-struct DisplayData {
-    data: std::collections::HashMap<String, serde_json::Value>,
+#[derive(Serialize, Deserialize, Debug)]
+pub struct DisplayData {
+    pub data: std::collections::HashMap<String, serde_json::Value>,
+    pub metadata: std::collections::HashMap<String, serde_json::Value>,
 }
 
-#[derive(Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, PartialEq, Serialize, Deserialize, Debug)]
 pub enum CellType {
     Shell,
     Rust,
@@ -71,7 +75,7 @@ pub enum CellType {
     Go,
 }
 
-#[derive(Clone, Serialize, Deserialize)]
+#[derive(Clone, Serialize, Deserialize, Debug)]
 pub struct Cell {
     pub id: String,
     pub content: String,
@@ -309,7 +313,7 @@ impl App {
                 CellType::Shell => None,
             };
 
-            let mut context = String::new();
+            let mut context = Vec::new();
             if let Some(l) = &lang {
                 for i in 0..index {
                     if let Some(prev_cell) = self.cells.get(i) {
@@ -324,8 +328,7 @@ impl App {
                              CellType::Shell => None,
                         };
                         if prev_lang.as_ref() == Some(l) {
-                            context.push_str(&prev_cell.content);
-                            context.push('\n');
+                            context.push(prev_cell.content.clone());
                         }
                     }
                 }
