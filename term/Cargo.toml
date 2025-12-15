@@ -31,3 +31,7 @@ tower-http = { version = "0.6.7", features = ["cors"] }
 [dev-dependencies]
 http-body-util = "0.1.3"
 mime = "0.3.17"
+
+[profile.release]
+codegen-units = 1
+lto = true
