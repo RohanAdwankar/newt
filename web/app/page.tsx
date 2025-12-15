@@ -37,6 +37,7 @@ export default function App() {
   const [executionMode, setExecutionMode] = useState<ExecutionMode>('client');
   const [isBackendAvailable, setIsBackendAvailable] = useState(false);
   const [vimMode, setVimMode] = useState(true);
+  const [fullscreenCellId, setFullscreenCellId] = useState<string | null>(null);
   const spacePressedRef = useRef(false);
   const pollingInputRef = useRef<HTMLInputElement>(null);
 
@@ -344,6 +345,9 @@ export default function App() {
             case 'd':
                 deleteCells();
                 break;
+            case 'f':
+                toggleFullscreen();
+                break;
             }
         }
       } else if (focus === 'sidebar') {
@@ -477,8 +481,13 @@ export default function App() {
         } else {
             await saveNotebook();
         }
-    } else if (command === 'q') {
-        // Close?
+    } else if (command === 'q' || command === 'wq') {
+        if (fullscreenCellId) {
+            setFullscreenCellId(null);
+        }
+        if (command === 'wq') {
+            await saveNotebook();
+        }
     } else if (['rust', 'cpp', 'c', 'py', 'ts', 'js'].includes(command)) {
         const langMap: Record<string, CellType> = {
             'rust': 'rust',
@@ -911,6 +920,14 @@ export default function App() {
     }));
   };
 
+  const toggleFullscreen = () => {
+    if (fullscreenCellId) {
+        setFullscreenCellId(null);
+    } else if (cells.length > 0) {
+        setFullscreenCellId(cells[primaryIndex].id);
+    }
+  };
+
   return (
     <div className="flex flex-col h-screen w-screen bg-bg-primary text-text-primary overflow-hidden">
       <Toolbar 
@@ -939,6 +956,8 @@ export default function App() {
         theme={theme}
         vimMode={vimMode}
         onToggleVimMode={toggleVimMode}
+        isFullscreen={!!fullscreenCellId}
+        onToggleFullscreen={toggleFullscreen}
       />
       <div className="flex-1 flex overflow-hidden">
         <Sidebar 
@@ -970,6 +989,7 @@ export default function App() {
             onAddCell={addCell}
             onEditCell={() => setInputMode('editing')}
             onReorder={handleReorder}
+            fullscreenCellId={fullscreenCellId}
         />
       </div>
       

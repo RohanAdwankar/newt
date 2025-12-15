@@ -1,5 +1,5 @@
 import React from 'react';
-import { Save, Plus, Scissors, Copy, Clipboard, Play, Square, RotateCw, Layers, Settings, Folder, Moon, Sun, Keyboard, Timer, Share } from 'lucide-react';
+import { Save, Plus, Scissors, Copy, Clipboard, Play, Square, RotateCw, Layers, Settings, Folder, Moon, Sun, Keyboard, Timer, Share, Maximize2, Minimize2 } from 'lucide-react';
 
 interface ToolbarProps {
   onSave: () => void;
@@ -22,6 +22,8 @@ interface ToolbarProps {
   theme: string;
   vimMode: boolean;
   onToggleVimMode: () => void;
+  isFullscreen: boolean;
+  onToggleFullscreen: () => void;
 }
 
 export const Toolbar: React.FC<ToolbarProps> = ({
@@ -44,7 +46,9 @@ export const Toolbar: React.FC<ToolbarProps> = ({
   onToggleTheme,
   theme,
   vimMode,
-  onToggleVimMode
+  onToggleVimMode,
+  isFullscreen,
+  onToggleFullscreen
 }) => {
   const btnClass = "p-1.5 rounded hover:bg-bg-tertiary text-text-secondary hover:text-text-primary transition-colors";
 
@@ -88,6 +92,9 @@ export const Toolbar: React.FC<ToolbarProps> = ({
       </button>
       <button onClick={onPolling} className={btnClass} title="Set Polling Interval">
         <Timer size={18} />
+      </button>
+      <button onClick={onToggleFullscreen} className={btnClass} title={isFullscreen ? "Exit Fullscreen (Esc)" : "Fullscreen (F)"}>
+        {isFullscreen ? <Minimize2 size={18} /> : <Maximize2 size={18} />}
       </button>
 
       <div className="flex-1" />

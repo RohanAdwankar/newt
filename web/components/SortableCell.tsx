@@ -35,6 +35,7 @@ interface SortableCellProps {
   // Selection drag handlers from parent
   onSelectionMouseDown: (index: number, e: React.MouseEvent) => void;
   onSelectionMouseEnter: (index: number) => void;
+  isFullscreen?: boolean;
 }
 
 export const SortableCell: React.FC<SortableCellProps> = ({
@@ -54,6 +55,7 @@ export const SortableCell: React.FC<SortableCellProps> = ({
   onEditCell,
   onSelectionMouseDown,
   onSelectionMouseEnter,
+  isFullscreen
 }) => {
   const {
     attributes,
@@ -62,13 +64,14 @@ export const SortableCell: React.FC<SortableCellProps> = ({
     transform,
     transition,
     isDragging,
-  } = useSortable({ id: cell.id });
+  } = useSortable({ id: cell.id, disabled: isFullscreen });
 
   const style = {
     transform: CSS.Transform.toString(transform),
     transition,
     zIndex: isDragging ? 100 : 'auto',
     opacity: isDragging ? 0.5 : 1,
+    height: isFullscreen ? '100%' : 'auto',
   };
 
   const activeRef = useRef<HTMLDivElement>(null);
@@ -116,12 +119,13 @@ export const SortableCell: React.FC<SortableCellProps> = ({
         onShiftClick(e, cell.id);
       }}
       className={clsx(
-        "relative rounded border transition-all group",
-        isSelected && focused ? "border-accent bg-bg-secondary shadow-[0_0_10px_rgba(34,197,94,0.1)]" : "border-border-color bg-bg-primary"
+        "relative rounded border transition-all group flex flex-col",
+        isSelected && focused ? "border-accent bg-bg-secondary shadow-[0_0_10px_rgba(34,197,94,0.1)]" : "border-border-color bg-bg-primary",
+        isFullscreen && "h-full"
       )}
     >
       <div
-        className="flex justify-between items-center mb-2 text-xs text-text-muted uppercase tracking-wider select-none p-2 pb-0 cursor-pointer"
+        className="flex justify-between items-center mb-2 text-xs text-text-muted uppercase tracking-wider select-none p-2 pb-0 cursor-pointer shrink-0"
         onClick={(e) => {
           e.stopPropagation();
           onCellSelect(index, e.metaKey || e.ctrlKey, e.shiftKey);
@@ -129,6 +133,7 @@ export const SortableCell: React.FC<SortableCellProps> = ({
       >
         <div className="flex items-center gap-2">
             {/* Drag Handle */}
+            {!isFullscreen && (
             <div 
                 className="cursor-grab active:cursor-grabbing hover:text-text-primary"
                 {...attributes} 
@@ -141,6 +146,7 @@ export const SortableCell: React.FC<SortableCellProps> = ({
             >
                 <GripVertical size={14} />
             </div>
+            )}
 
             <span className={clsx("font-bold", isSelected && focused ? "text-accent" : "text-text-muted")}>
             [{cell.type}] {cell.id.slice(0, 8)}
@@ -163,11 +169,12 @@ export const SortableCell: React.FC<SortableCellProps> = ({
         </button>
       </div>
 
-      <div className="px-2 pb-2">
+      <div className={clsx("px-2 pb-2 flex flex-col", isFullscreen ? "flex-1 overflow-hidden" : "")}>
         <div
           className={clsx(
             "font-mono text-sm border rounded overflow-hidden",
-            isSelected && editing ? "border-accent" : "border-transparent"
+            isSelected && editing ? "border-accent" : "border-transparent",
+            isFullscreen ? "flex-1 overflow-y-auto" : ""
           )}
           onKeyDown={(e) => {
             if (isSelected && editing) {
@@ -192,6 +199,7 @@ export const SortableCell: React.FC<SortableCellProps> = ({
               fontFamily: '"Fira Code", "Fira Mono", monospace',
               fontSize: 14,
               backgroundColor: isSelected && editing ? 'var(--bg-tertiary)' : 'transparent',
+              minHeight: isFullscreen ? '100%' : 'auto',
             }}
             textareaClassName="focus:outline-none"
             disabled={!editing}
@@ -200,7 +208,10 @@ export const SortableCell: React.FC<SortableCellProps> = ({
 
         {(cell.output || (cell.display_data && cell.display_data.length > 0)) && (
           <div
-            className="mt-2 border-t border-border-color pt-2 cursor-pointer"
+            className={clsx(
+                "mt-2 border-t border-border-color pt-2 cursor-pointer",
+                isFullscreen ? "max-h-[40%] overflow-y-auto shrink-0" : ""
+            )}
             onClick={(e) => {
               e.stopPropagation();
               onCellSelect(index, e.metaKey || e.ctrlKey, e.shiftKey);
@@ -229,6 +240,7 @@ export const SortableCell: React.FC<SortableCellProps> = ({
       </div>
 
       {/* Hover to Add Cell Zone */}
+      {!isFullscreen && (
       <div
         className="absolute -bottom-3 left-0 right-0 h-6 flex items-center justify-center opacity-0 hover:opacity-100 z-10 cursor-pointer group/add"
         onClick={(e) => {
@@ -241,6 +253,7 @@ export const SortableCell: React.FC<SortableCellProps> = ({
           <Plus size={14} />
         </div>
       </div>
+      )}
     </div>
   );
 };

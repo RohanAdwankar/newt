@@ -41,6 +41,7 @@ interface CellListProps {
   onAddCell: (index: number) => void;
   onEditCell: (index: number) => void;
   onReorder: (oldIndex: number, newIndex: number) => void;
+  fullscreenCellId: string | null;
 }
 
 export const CellList: React.FC<CellListProps> = ({ 
@@ -56,7 +57,8 @@ export const CellList: React.FC<CellListProps> = ({
   onRunCell,
   onAddCell,
   onEditCell,
-  onReorder
+  onReorder,
+  fullscreenCellId
 }) => {
   const listRef = useRef<HTMLDivElement>(null);
   const [isDragging, setIsDragging] = useState(false);
@@ -105,6 +107,37 @@ export const CellList: React.FC<CellListProps> = ({
     window.addEventListener('mouseup', handleMouseUp);
     return () => window.removeEventListener('mouseup', handleMouseUp);
   }, []);
+
+  if (fullscreenCellId) {
+    const cell = cells.find(c => c.id === fullscreenCellId);
+    const index = cells.findIndex(c => c.id === fullscreenCellId);
+    if (cell && index !== -1) {
+        return (
+            <div className="flex-1 h-full overflow-hidden p-4">
+                 <SortableCell
+                    key={cell.id}
+                    cell={cell}
+                    index={index}
+                    isSelected={true}
+                    isPrimary={true}
+                    focused={focused}
+                    editing={editing}
+                    onContentChange={onContentChange}
+                    onExitEditing={onExitEditing}
+                    onShiftClick={onShiftClick}
+                    onCellSelect={onCellSelect}
+                    onRangeSelect={onRangeSelect}
+                    onRunCell={onRunCell}
+                    onAddCell={onAddCell}
+                    onEditCell={onEditCell}
+                    onSelectionMouseDown={() => {}}
+                    onSelectionMouseEnter={() => {}}
+                    isFullscreen={true}
+                  />
+            </div>
+        )
+    }
+  }
 
   return (
     <DndContext 
