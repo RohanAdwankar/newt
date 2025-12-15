@@ -34,6 +34,7 @@ export default function App() {
   const [renameInput, setRenameInput] = useState('');
   const [theme, setTheme] = useState('dark');
   const [executionMode, setExecutionMode] = useState<ExecutionMode>('client');
+  const [isBackendAvailable, setIsBackendAvailable] = useState(false);
   const spacePressedRef = useRef(false);
 
   // Helper to get primary selection (last selected)
@@ -183,9 +184,11 @@ export default function App() {
       if (!res.ok) throw new Error(`HTTP error! status: ${res.status}`);
       const backend = await res.json();
       setBackendFiles(backend);
+      setIsBackendAvailable(true);
     } catch (e) {
       console.warn("Failed to fetch backend files", e);
       setBackendFiles([]);
+      setIsBackendAvailable(false);
     }
   }, [getLocalFiles]);
 
@@ -309,7 +312,9 @@ export default function App() {
       } else if (focus === 'sidebar') {
         const localCount = localFiles.length;
         const computerStartIndex = localCount + 1;
-        const totalItems = localCount + 1 + backendFiles.length + 1;
+        const totalItems = isBackendAvailable 
+            ? localCount + 1 + backendFiles.length + 1 
+            : localCount + 1;
 
         switch (e.key) {
           case 'j':
@@ -329,7 +334,7 @@ export default function App() {
             if (selectedFileIndex > 0 && selectedFileIndex <= localCount) {
                 setRenameInput(localFiles[selectedFileIndex - 1]);
                 setInputMode('renaming');
-            } else if (selectedFileIndex > computerStartIndex) {
+            } else if (isBackendAvailable && selectedFileIndex > computerStartIndex) {
                 setRenameInput(backendFiles[selectedFileIndex - computerStartIndex - 1]);
                 setInputMode('renaming');
             }
@@ -338,7 +343,7 @@ export default function App() {
             if (selectedFileIndex > 0 && selectedFileIndex <= localCount) {
                 setClipboardFile({ path: localFiles[selectedFileIndex - 1], origin: 'local' });
                 setStatusMessage(`Yanked ${localFiles[selectedFileIndex - 1]}`);
-            } else if (selectedFileIndex > computerStartIndex) {
+            } else if (isBackendAvailable && selectedFileIndex > computerStartIndex) {
                 setClipboardFile({ path: backendFiles[selectedFileIndex - computerStartIndex - 1], origin: 'backend' });
                 setStatusMessage(`Yanked ${backendFiles[selectedFileIndex - computerStartIndex - 1]}`);
             }
@@ -359,7 +364,7 @@ export default function App() {
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [cells, localFiles, backendFiles, focus, inputMode, selectedIndices, selectedFileIndex, commandInput, pollingInput, clipboardCells, clipboardFile, showSidebar, renameInput]);
+  }, [cells, localFiles, backendFiles, focus, inputMode, selectedIndices, selectedFileIndex, commandInput, pollingInput, clipboardCells, clipboardFile, showSidebar, renameInput, isBackendAvailable]);
 
   // Space chord handler
   useEffect(() => {
@@ -590,14 +595,14 @@ export default function App() {
                 setStatusMessage("Error parsing local notebook");
             }
         }
-    } else if (index === computerStartIndex) {
+    } else if (isBackendAvailable && index === computerStartIndex) {
         // New Backend Notebook
         setCells([{ id: uuidv4(), content: '', output: '', type: 'python' }]);
         setFilePath(null);
         setFileOrigin('backend');
         setFocus('editor');
         setSelectedIndices([0]);
-    } else {
+    } else if (isBackendAvailable && index > computerStartIndex) {
         // Open Backend File
         const file = backendFiles[index - computerStartIndex - 1];
         try {
@@ -800,6 +805,7 @@ export default function App() {
         <Sidebar 
             localFiles={localFiles}
             backendFiles={backendFiles}
+            isBackendAvailable={isBackendAvailable}
             selectedIndex={selectedFileIndex} 
             focused={focus === 'sidebar'} 
             visible={showSidebar}

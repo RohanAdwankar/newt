@@ -5,6 +5,7 @@ import { clsx } from 'clsx';
 interface SidebarProps {
   localFiles: string[];
   backendFiles: string[];
+  isBackendAvailable: boolean;
   selectedIndex: number;
   focused: boolean;
   visible: boolean;
@@ -17,6 +18,7 @@ interface SidebarProps {
 export const Sidebar: React.FC<SidebarProps> = ({ 
   localFiles,
   backendFiles,
+  isBackendAvailable,
   selectedIndex, 
   focused, 
   visible, 
@@ -82,40 +84,44 @@ export const Sidebar: React.FC<SidebarProps> = ({
         ))}
 
         {/* Computer Section */}
-        <div className="px-2 py-1 text-xs font-bold text-text-muted uppercase tracking-wider mt-4">Computer</div>
-        
-        <div 
-          className={clsx(
-            "p-2 cursor-pointer flex items-center gap-2 text-sm font-mono hover:bg-bg-tertiary",
-            selectedIndex === computerStartIndex && focused ? "bg-selection text-accent" : "text-text-secondary"
-          )}
-          onClick={() => onFileClick(computerStartIndex)}
-          onContextMenu={(e) => {
-            e.preventDefault();
-            onFileContextMenu(e, computerStartIndex);
-          }}
-        >
-          <Plus size={16} />
-          <span>New Notebook</span>
-        </div>
-
-        {backendFiles.map((file, index) => (
-          <div
-            key={`backend-${file}`}
-            className={clsx(
-              "p-2 cursor-pointer flex items-center gap-2 truncate text-sm font-mono hover:bg-bg-tertiary",
-              selectedIndex === computerStartIndex + 1 + index && focused ? "bg-selection text-accent" : "text-text-secondary"
-            )}
-            onClick={() => onFileClick(computerStartIndex + 1 + index)}
-            onContextMenu={(e) => {
+        {isBackendAvailable && (
+          <>
+            <div className="px-2 py-1 text-xs font-bold text-text-muted uppercase tracking-wider mt-4">Computer</div>
+            
+            <div 
+              className={clsx(
+                "p-2 cursor-pointer flex items-center gap-2 text-sm font-mono hover:bg-bg-tertiary",
+                selectedIndex === computerStartIndex && focused ? "bg-selection text-accent" : "text-text-secondary"
+              )}
+              onClick={() => onFileClick(computerStartIndex)}
+              onContextMenu={(e) => {
                 e.preventDefault();
-                onFileContextMenu(e, computerStartIndex + 1 + index);
-            }}
-          >
-            <File size={16} />
-            <span>{file}</span>
-          </div>
-        ))}
+                onFileContextMenu(e, computerStartIndex);
+              }}
+            >
+              <Plus size={16} />
+              <span>New Notebook</span>
+            </div>
+
+            {backendFiles.map((file, index) => (
+              <div
+                key={`backend-${file}`}
+                className={clsx(
+                  "p-2 cursor-pointer flex items-center gap-2 truncate text-sm font-mono hover:bg-bg-tertiary",
+                  selectedIndex === computerStartIndex + 1 + index && focused ? "bg-selection text-accent" : "text-text-secondary"
+                )}
+                onClick={() => onFileClick(computerStartIndex + 1 + index)}
+                onContextMenu={(e) => {
+                    e.preventDefault();
+                    onFileContextMenu(e, computerStartIndex + 1 + index);
+                }}
+              >
+                <File size={16} />
+                <span>{file}</span>
+              </div>
+            ))}
+          </>
+        )}
       </div>
       <div className="p-2 border-t border-border-color">
         <button 
