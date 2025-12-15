@@ -134,7 +134,13 @@ export const CellList: React.FC<CellListProps> = ({
               isSelected && focused ? "border-accent bg-bg-secondary shadow-[0_0_10px_rgba(34,197,94,0.1)]" : "border-border-color bg-bg-primary"
             )}
           >
-            <div className="flex justify-between items-center mb-2 text-xs text-text-muted uppercase tracking-wider select-none p-2 pb-0">
+            <div 
+                className="flex justify-between items-center mb-2 text-xs text-text-muted uppercase tracking-wider select-none p-2 pb-0 cursor-pointer"
+                onClick={(e) => {
+                    e.stopPropagation();
+                    onCellSelect(index, e.metaKey || e.ctrlKey, e.shiftKey);
+                }}
+            >
               <span className={clsx("font-bold", isSelected && focused ? "text-accent" : "text-text-muted")}>
                 [{cell.type}] {cell.id.slice(0, 8)} 
                 {cell.polling_interval && (
@@ -191,7 +197,13 @@ export const CellList: React.FC<CellListProps> = ({
                 </div>
 
                 {(cell.output || (cell.display_data && cell.display_data.length > 0)) && (
-                <div className="mt-2 border-t border-border-color pt-2">
+                <div 
+                    className="mt-2 border-t border-border-color pt-2 cursor-pointer"
+                    onClick={(e) => {
+                        e.stopPropagation();
+                        onCellSelect(index, e.metaKey || e.ctrlKey, e.shiftKey);
+                    }}
+                >
                     <div className="text-xs text-text-muted mb-1 select-none">Output:</div>
                     
                     {cell.output && (

@@ -1,5 +1,5 @@
 import React from 'react';
-import { Save, Plus, Scissors, Copy, Clipboard, Play, Square, RotateCw, Layers, Settings } from 'lucide-react';
+import { Save, Plus, Scissors, Copy, Clipboard, Play, Square, RotateCw, Layers, Settings, Folder, Moon, Sun, Keyboard, Timer } from 'lucide-react';
 
 interface ToolbarProps {
   onSave: () => void;
@@ -11,8 +11,14 @@ interface ToolbarProps {
   onStop: () => void;
   onRestart: () => void;
   onRunAll: () => void;
+  onPolling: () => void;
   executionMode?: 'client' | 'remote';
   onExecutionModeChange?: (mode: 'client' | 'remote') => void;
+  onToggleSidebar: () => void;
+  onToggleTheme: () => void;
+  theme: string;
+  vimMode: boolean;
+  onToggleVimMode: () => void;
 }
 
 export const Toolbar: React.FC<ToolbarProps> = ({
@@ -25,13 +31,23 @@ export const Toolbar: React.FC<ToolbarProps> = ({
   onStop,
   onRestart,
   onRunAll,
+  onPolling,
   executionMode = 'remote',
-  onExecutionModeChange
+  onExecutionModeChange,
+  onToggleSidebar,
+  onToggleTheme,
+  theme,
+  vimMode,
+  onToggleVimMode
 }) => {
   const btnClass = "p-1.5 rounded hover:bg-bg-tertiary text-text-secondary hover:text-text-primary transition-colors";
 
   return (
     <div className="h-10 border-b border-border-color bg-bg-secondary flex items-center px-2 gap-1 shrink-0">
+      <button onClick={onToggleSidebar} className={btnClass} title="Toggle File Browser (Space+E)">
+        <Folder size={18} />
+      </button>
+      <div className="w-px h-6 bg-border-color mx-1" />
       <button onClick={onSave} className={btnClass} title="Save (Ctrl+S)">
         <Save size={18} />
       </button>
@@ -61,19 +77,29 @@ export const Toolbar: React.FC<ToolbarProps> = ({
       <button onClick={onRunAll} className={btnClass} title="Run All">
         <Layers size={18} />
       </button>
-      
+      <button onClick={onPolling} className={btnClass} title="Set Polling Interval">
+        <Timer size={18} />
+      </button>
+
       <div className="flex-1" />
-      
+
+      <button onClick={onToggleVimMode} className={btnClass} title={vimMode ? "Disable Vim Mode" : "Enable Vim Mode"}>
+        <Keyboard size={18} className={vimMode ? "text-accent" : ""} />
+      </button>
+      <button onClick={onToggleTheme} className={btnClass} title="Toggle Theme">
+        {theme === 'dark' ? <Moon size={18} /> : <Sun size={18} />}
+      </button>
+
       {onExecutionModeChange && (
-        <div className="flex items-center gap-2 mr-2">
+        <div className="flex items-center gap-2 mr-2 ml-2">
           <span className="text-xs text-text-secondary">Mode:</span>
-          <select 
-            value={executionMode} 
+          <select
+            value={executionMode}
             onChange={(e) => onExecutionModeChange(e.target.value as any)}
             className="bg-bg-tertiary text-text-primary text-xs rounded px-2 py-1 border border-border-color outline-none"
           >
-            <option value="remote">Remote (Core API)</option>
-            <option value="client">Client (Browser)</option>
+            <option value="remote">Server</option>
+            <option value="client">Browser</option>
           </select>
         </div>
       )}

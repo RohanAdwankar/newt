@@ -35,7 +35,9 @@ export default function App() {
   const [theme, setTheme] = useState('dark');
   const [executionMode, setExecutionMode] = useState<ExecutionMode>('client');
   const [isBackendAvailable, setIsBackendAvailable] = useState(false);
+  const [vimMode, setVimMode] = useState(true);
   const spacePressedRef = useRef(false);
+  const pollingInputRef = useRef<HTMLInputElement>(null);
 
   // Helper to get primary selection (last selected)
   const primaryIndex = selectedIndices.length > 0 ? selectedIndices[selectedIndices.length - 1] : 0;
@@ -89,7 +91,19 @@ export default function App() {
       setTheme(savedTheme);
       document.documentElement.setAttribute('data-theme', savedTheme);
     }
+    const savedVimMode = localStorage.getItem('newt_vim_mode');
+    if (savedVimMode) {
+        setVimMode(savedVimMode === 'true');
+    }
   }, []);
+
+  const toggleVimMode = () => {
+      setVimMode(prev => {
+          const next = !prev;
+          localStorage.setItem('newt_vim_mode', String(next));
+          return next;
+      });
+  };
 
   const handlePollingInput = (input: string) => {
     if (cells.length === 0) return;
@@ -201,6 +215,9 @@ export default function App() {
   useEffect(() => {
     const handleKeyDown = async (e: KeyboardEvent) => {
       if (inputMode === 'editing') {
+        if (e.key === 'Escape') {
+            setInputMode('normal');
+        }
         return;
       }
 
@@ -256,57 +273,77 @@ export default function App() {
 
       // Normal Mode
       if (focus === 'editor') {
-        switch (e.key) {
-          case 'j':
+        // Common navigation keys (always active)
+        if (e.key === 'ArrowDown') {
+            e.preventDefault(); // Prevent scrolling
             setSelectedIndices(prev => {
                 const last = prev[prev.length - 1];
                 const next = Math.min(last + 1, cells.length - 1);
                 return [next];
             });
-            break;
-          case 'k':
+        } else if (e.key === 'ArrowUp') {
+            e.preventDefault(); // Prevent scrolling
             setSelectedIndices(prev => {
                 const last = prev[prev.length - 1];
                 const next = Math.max(last - 1, 0);
                 return [next];
             });
-            break;
-          case 'h':
-          case 'ArrowLeft':
+        } else if (e.key === 'ArrowLeft') {
+            e.preventDefault(); // Prevent scrolling
             if (showSidebar) setFocus('sidebar');
-            break;
-          case 'i':
-            if (cells.length > 0) setInputMode('editing');
-            break;
-          case 'r':
-            setInputMode('polling');
-            setPollingInput('r');
-            break;
-          case 'Enter':
+        } else if (e.key === 'Enter') {
             if (cells.length > 0) runCell(primaryIndex);
-            break;
-          case ':':
-            setInputMode('command');
-            setStatusMessage(null);
-            break;
-          case 'y':
-            copyCells();
-            break;
-          case 'p':
-            pasteCells(true); // below
-            break;
-          case 'P':
-            pasteCells(false); // above
-            break;
-          case 'o':
-            addCell(primaryIndex + 1);
-            break;
-          case 'O':
-            addCell(primaryIndex);
-            break;
-          case 'd':
-            deleteCells();
-            break;
+        }
+
+        if (vimMode) {
+            switch (e.key) {
+            case 'j':
+                setSelectedIndices(prev => {
+                    const last = prev[prev.length - 1];
+                    const next = Math.min(last + 1, cells.length - 1);
+                    return [next];
+                });
+                break;
+            case 'k':
+                setSelectedIndices(prev => {
+                    const last = prev[prev.length - 1];
+                    const next = Math.max(last - 1, 0);
+                    return [next];
+                });
+                break;
+            case 'h':
+                if (showSidebar) setFocus('sidebar');
+                break;
+            case 'i':
+                if (cells.length > 0) setInputMode('editing');
+                break;
+            case 'r':
+                setInputMode('polling');
+                setPollingInput('r');
+                break;
+            case ':':
+                setInputMode('command');
+                setStatusMessage(null);
+                break;
+            case 'y':
+                copyCells();
+                break;
+            case 'p':
+                pasteCells(true); // below
+                break;
+            case 'P':
+                pasteCells(false); // above
+                break;
+            case 'o':
+                addCell(primaryIndex + 1);
+                break;
+            case 'O':
+                addCell(primaryIndex);
+                break;
+            case 'd':
+                deleteCells();
+                break;
+            }
         }
       } else if (focus === 'sidebar') {
         const localCount = localFiles.length;
@@ -317,9 +354,11 @@ export default function App() {
 
         switch (e.key) {
           case 'j':
+          case 'ArrowDown':
             setSelectedFileIndex(prev => Math.min(prev + 1, totalItems - 1));
             break;
           case 'k':
+          case 'ArrowUp':
             setSelectedFileIndex(prev => Math.max(prev - 1, 0));
             break;
           case 'l':
@@ -371,7 +410,7 @@ export default function App() {
         if (inputMode !== 'normal') return;
         
         if (e.key === ' ') {
-            e.preventDefault();
+            e.preventDefault(); // Prevent scrolling
             spacePressedRef.current = true;
             // Reset after 1s to prevent getting stuck
             setTimeout(() => { spacePressedRef.current = false; }, 1000);
@@ -751,6 +790,56 @@ export default function App() {
     }
   };
 
+  const handleFileDrop = async (source: { path: string, origin: 'local' | 'backend' }, targetOrigin: 'local' | 'backend') => {
+    const { path: src, origin } = source;
+    let dest = src;
+    
+    // Check if dest exists in target, if so append copy
+    const targetFiles = targetOrigin === 'local' ? localFiles : backendFiles;
+    if (targetFiles.includes(dest)) {
+        dest = dest + "_copy";
+    }
+
+    let content: string | null = null;
+    if (origin === 'local') {
+        content = readLocalFile(src);
+    } else {
+        try {
+            const res = await fetch(`${API_URL}/files/read`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ path: src })
+            });
+            if (res.ok) {
+                content = await res.json();
+            }
+        } catch (e) {}
+    }
+    
+    if (!content) {
+        setStatusMessage("Failed to read source file");
+        return;
+    }
+    
+    if (targetOrigin === 'local') {
+        saveLocalFile(dest, content);
+        fetchFiles();
+        setStatusMessage(`Copied ${src} to Browser`);
+    } else {
+        try {
+            await fetch(`${API_URL}/files/save`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ path: dest, content })
+            });
+            fetchFiles();
+            setStatusMessage(`Copied ${src} to Computer`);
+        } catch (e) {
+            setStatusMessage("Backend copy failed");
+        }
+    }
+  };
+
   const deleteFile = async () => {
     const localCount = localFiles.length;
     const computerStartIndex = localCount + 1;
@@ -819,8 +908,19 @@ export default function App() {
         onStop={() => {}}
         onRestart={() => {}}
         onRunAll={runAllCells}
+        onPolling={() => {
+            if (cells.length > 0) {
+                const cellId = cells[primaryIndex].id;
+                setContextMenu({ x: window.innerWidth / 2 - 100, y: 60, cellId });
+            }
+        }}
         executionMode={executionMode}
         onExecutionModeChange={setExecutionMode}
+        onToggleSidebar={() => setShowSidebar(prev => !prev)}
+        onToggleTheme={toggleTheme}
+        theme={theme}
+        vimMode={vimMode}
+        onToggleVimMode={toggleVimMode}
       />
       <div className="flex-1 flex overflow-hidden">
         <Sidebar 
@@ -834,6 +934,7 @@ export default function App() {
             onToggleTheme={toggleTheme}
             onFileClick={handleFileClick}
             onFileContextMenu={handleFileContextMenu}
+            onFileDrop={handleFileDrop}
         />
         <CellList 
             cells={cells} 
@@ -860,6 +961,7 @@ export default function App() {
         >
             <div className="text-sm mb-2">Polling Interval (s):</div>
             <input 
+                ref={pollingInputRef}
                 type="number" 
                 className="bg-bg-primary border border-border-color p-1 rounded w-full mb-2"
                 onKeyDown={(e) => {
@@ -871,15 +973,29 @@ export default function App() {
                 }}
                 autoFocus
             />
-            <button 
-                className="bg-red-500 text-white px-2 py-1 rounded text-xs w-full"
-                onClick={() => {
-                    setCells(prev => prev.map(c => c.id === contextMenu.cellId ? { ...c, polling_interval: undefined } : c));
-                    setContextMenu(null);
-                }}
-            >
-                Disable Polling
-            </button>
+            <div className="flex gap-2">
+                <button 
+                    className="bg-green-600 hover:bg-green-700 text-white px-2 py-1 rounded text-xs flex-1"
+                    onClick={() => {
+                        if (pollingInputRef.current) {
+                            const val = parseInt(pollingInputRef.current.value);
+                            setCells(prev => prev.map(c => c.id === contextMenu.cellId ? { ...c, polling_interval: isNaN(val) || val <= 0 ? undefined : val } : c));
+                            setContextMenu(null);
+                        }
+                    }}
+                >
+                    Set
+                </button>
+                <button 
+                    className="bg-gray-600 hover:bg-gray-700 text-white px-2 py-1 rounded text-xs flex-1"
+                    onClick={() => {
+                        setCells(prev => prev.map(c => c.id === contextMenu.cellId ? { ...c, polling_interval: undefined } : c));
+                        setContextMenu(null);
+                    }}
+                >
+                    Disable
+                </button>
+            </div>
             <div className="fixed inset-0 -z-10" onClick={() => setContextMenu(null)} />
         </div>
       )}
