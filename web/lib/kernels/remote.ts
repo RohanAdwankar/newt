@@ -3,7 +3,7 @@ import { Kernel, ExecutionResult } from './types';
 const API_URL = 'http://127.0.0.1:3000';
 
 export class RemoteKernel implements Kernel {
-    async execute(code: string, language: string, context: string = ""): Promise<ExecutionResult> {
+    async execute(code: string, language: string, context: string[] = []): Promise<ExecutionResult> {
         try {
             const res = await fetch(`${API_URL}/exec`, {
                 method: 'POST',

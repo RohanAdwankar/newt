@@ -6,7 +6,7 @@ export interface ExecutionResult {
 }
 
 export interface Kernel {
-    execute(code: string, language: string, context?: string): Promise<ExecutionResult>;
+    execute(code: string, language: string, context?: string[]): Promise<ExecutionResult>;
 }
 
 export type ExecutionMode = 'client' | 'remote';

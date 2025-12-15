@@ -14,7 +14,7 @@ use ratatui::{
     widgets::{Block, Borders, List, ListItem, ListState, Paragraph},
     Frame, Terminal,
 };
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Deserializer, Serialize};
 use std::{error::Error, io, process::Command, path::PathBuf, fs};
 use std::io::Write;
 
@@ -36,7 +36,33 @@ struct Args {
 pub struct CommandRequest {
     pub command: String,
     pub language: Option<String>,
+    #[serde(default, deserialize_with = "deserialize_context")]
     pub context: Option<Vec<String>>,
+}
+
+fn deserialize_context<'de, D>(deserializer: D) -> Result<Option<Vec<String>>, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    #[derive(Deserialize)]
+    #[serde(untagged)]
+    enum StringOrVec {
+        String(String),
+        Vec(Vec<String>),
+    }
+
+    let opt = Option::<StringOrVec>::deserialize(deserializer)?;
+    match opt {
+        Some(StringOrVec::String(s)) => {
+            if s.is_empty() {
+                Ok(None)
+            } else {
+                Ok(Some(vec![s]))
+            }
+        },
+        Some(StringOrVec::Vec(v)) => Ok(Some(v)),
+        None => Ok(None),
+    }
 }
 
 #[derive(Serialize, Deserialize, Debug)]
@@ -1267,5 +1293,33 @@ fn ui(f: &mut Frame, app: &App) {
                 .block(Block::default().borders(Borders::ALL).title("Rename File"));
             f.render_widget(input_block, popup_area);
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_command_request_deserialization() {
+        // Case 1: Context is a list of strings (Normal case)
+        let json = r#"{"command": "print(1)", "language": "python", "context": ["a=1"]}"#;
+        let req: CommandRequest = serde_json::from_str(json).unwrap();
+        assert_eq!(req.context, Some(vec!["a=1".to_string()]));
+
+        // Case 2: Context is an empty string (The bug case)
+        let json = r#"{"command": "print(1)", "language": "python", "context": ""}"#;
+        let req: CommandRequest = serde_json::from_str(json).unwrap();
+        assert_eq!(req.context, None);
+
+        // Case 3: Context is a non-empty string (Backward compatibility)
+        let json = r#"{"command": "print(1)", "language": "python", "context": "a=1"}"#;
+        let req: CommandRequest = serde_json::from_str(json).unwrap();
+        assert_eq!(req.context, Some(vec!["a=1".to_string()]));
+
+        // Case 4: Context is null/missing
+        let json = r#"{"command": "print(1)", "language": "python"}"#;
+        let req: CommandRequest = serde_json::from_str(json).unwrap();
+        assert_eq!(req.context, None);
     }
 }

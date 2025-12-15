@@ -180,7 +180,7 @@ ${code}
         }
     }
 
-    async execute(code: string, language: string, _context: string = ""): Promise<ExecutionResult> {
+    async execute(code: string, language: string, _context: string[] = []): Promise<ExecutionResult> {
         if (language === 'javascript' || language === 'typescript') {
             return this.executeJS(code);
         } else if (language === 'python') {
