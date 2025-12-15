@@ -420,6 +420,28 @@ export default function App() {
         }
     } else if (command === 'q') {
         // Close?
+    } else if (['rust', 'cpp', 'c', 'py', 'ts', 'js'].includes(command)) {
+        const langMap: Record<string, CellType> = {
+            'rust': 'rust',
+            'cpp': 'cpp',
+            'c': 'c',
+            'py': 'python',
+            'ts': 'typescript',
+            'js': 'javascript'
+        };
+        const newType = langMap[command];
+        if (newType) {
+            setCells(prev => {
+                const newCells = [...prev];
+                selectedIndices.forEach(index => {
+                    if (newCells[index]) {
+                        newCells[index] = { ...newCells[index], type: newType };
+                    }
+                });
+                return newCells;
+            });
+            setStatusMessage(`Converted to ${newType}`);
+        }
     }
   };
 

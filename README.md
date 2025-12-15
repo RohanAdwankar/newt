@@ -14,10 +14,12 @@ The Server is an option for the terminal or the GUI in server mode which operate
 The goal of client side mode is to run code directly in the browser using WASM.
 This means nothing is sent anywhere externally nor to a server running on your machine, just ran in the browser.
 Currently supported languages are: js, ts, py, cpp
+Files and preferences are saved to localstorage.
 
 ### Server Side Mode
 To enable server side mode activate the server and connect to it from the GUI.
 To use the main site you will have to enable "Local network access" in your browser settings to the left of the url.
+When the server is connected you can also interact with newt notebooks saved to applications files.
 To install the server via cargo:
 ```bash
 cargo install newts
@@ -29,6 +31,7 @@ newts --serve
 
 ## TUI
 To run the TUI first start the server then start the TUI client.
+Notebooks are saved to applications files.
 The TUI will automatically start the server if it is not running.
 To install the TUI via cargo:
 ```bash

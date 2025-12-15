@@ -903,6 +903,54 @@ async fn run_app<B: Backend + std::io::Write>(terminal: &mut Terminal<B>, app: &
                                         }
                                     }
                                 }
+                                "rust" => {
+                                    if let Some(i) = app.list_state.selected() {
+                                        if let Some(cell) = app.cells.get_mut(i / 2) {
+                                            cell.cell_type = CellType::Rust;
+                                        }
+                                    }
+                                    app.input_mode = InputMode::Normal;
+                                }
+                                "cpp" => {
+                                    if let Some(i) = app.list_state.selected() {
+                                        if let Some(cell) = app.cells.get_mut(i / 2) {
+                                            cell.cell_type = CellType::Cpp;
+                                        }
+                                    }
+                                    app.input_mode = InputMode::Normal;
+                                }
+                                "c" => {
+                                    if let Some(i) = app.list_state.selected() {
+                                        if let Some(cell) = app.cells.get_mut(i / 2) {
+                                            cell.cell_type = CellType::C;
+                                        }
+                                    }
+                                    app.input_mode = InputMode::Normal;
+                                }
+                                "py" => {
+                                    if let Some(i) = app.list_state.selected() {
+                                        if let Some(cell) = app.cells.get_mut(i / 2) {
+                                            cell.cell_type = CellType::Python;
+                                        }
+                                    }
+                                    app.input_mode = InputMode::Normal;
+                                }
+                                "ts" => {
+                                    if let Some(i) = app.list_state.selected() {
+                                        if let Some(cell) = app.cells.get_mut(i / 2) {
+                                            cell.cell_type = CellType::TypeScript;
+                                        }
+                                    }
+                                    app.input_mode = InputMode::Normal;
+                                }
+                                "js" => {
+                                    if let Some(i) = app.list_state.selected() {
+                                        if let Some(cell) = app.cells.get_mut(i / 2) {
+                                            cell.cell_type = CellType::JavaScript;
+                                        }
+                                    }
+                                    app.input_mode = InputMode::Normal;
+                                }
                                 _ => {
                                     app.input_mode = InputMode::Normal;
                                 }
