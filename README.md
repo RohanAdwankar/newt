@@ -42,26 +42,25 @@ Then you can run it with:
 newts
 ```
  
-## Vim Motions
-Currently the TUI supports the following vim-like motions: 
-```
-h/l for moving between cells
-i for editing cell
-rust/go/cpp/py/c for changint the language types of cells
-enter for running cell
-:ra for running all cells
-y/p/P
-:export
-enter to open images in output cells
-```
-There also in a file tree with these supported motions:
-```
-space e for opening/closing file tree
-h/l for switching from file tree to notebook
-r for renaming files
-y/p for file copying
-```
-TODO: support all motions in the gui
+## Vim Motions & Commands
+
+| Command | Action | TUI | GUI |
+| :--- | :--- | :---: | :---: |
+| `j` / `k` | Move selection down / up | ✅ | ✅ |
+| `h` / `l` | Focus sidebar / editor | ✅ | ✅ |
+| `i` | Edit cell | ✅ | ✅ |
+| `Enter` | Run cell / Open file | ✅ | ✅ |
+| `o` / `O` | Add cell below / above | ✅ | ✅ |
+| `d` | Delete cell | ✅ | ✅ |
+| `y` | Yank (copy) cell / file | ✅ | ✅ |
+| `p` / `P` | Paste below / above | ✅ | ✅ |
+| `r` | Polling mode (cell) / Rename (file) | ✅ | ✅ |
+| `Space e` | Toggle file tree | ✅ | ✅ |
+| `:w` | Save notebook | ✅ | ✅ |
+| `:q` | Quit | ✅ | ❌ |
+| `:ra` | Run all cells | ✅ | ✅ |
+| `:export` | Export to Markdown | ✅ | ✅ |
+| `:rust`, `:py`, etc. | Convert cell language | ✅ | ✅ |
 
 ### Vision
 the goal of newt is to write an alternative approach to using the computer than basic terminals

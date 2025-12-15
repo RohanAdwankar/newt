@@ -210,7 +210,6 @@ export default function App() {
           await executeCommand(commandInput);
           setInputMode('normal');
           setCommandInput('');
-          setStatusMessage(null);
         } else if (e.key === 'Escape') {
           setInputMode('normal');
           setCommandInput('');
@@ -401,6 +400,26 @@ export default function App() {
     };
   }, [inputMode]);
 
+
+  const exportNotebook = async () => {
+    let md = "";
+    for (const cell of cells) {
+        md += "```" + cell.type + "\n";
+        md += cell.content + "\n";
+        md += "```\n\n";
+        if (cell.output) {
+            md += "Output:\n```\n" + cell.output + "\n```\n\n";
+        }
+    }
+    const blob = new Blob([md], { type: 'text/markdown' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = (filePath || 'notebook').replace(/\.newt$/, '') + '.md';
+    a.click();
+    URL.revokeObjectURL(url);
+    setStatusMessage("Exported to Markdown");
+  };
 
   const executeCommand = async (cmd: string) => {
     const parts = cmd.split(' ');
@@ -757,27 +776,7 @@ export default function App() {
     }
   };
 
-  const exportNotebook = async () => {
-    try {
-        const res = await fetch(`${API_URL}/export`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ cells })
-        });
-        const data = await res.json();
-        if (filePath) {
-            const mdPath = filePath.replace('.json', '.md');
-            await fetch(`${API_URL}/files/save`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ path: mdPath, content: data.markdown })
-            });
-            setStatusMessage(`Exported to ${mdPath}`);
-        }
-    } catch (e) {
-        setStatusMessage("Export failed");
-    }
-  };
+
 
   useEffect(() => {
     const interval = setInterval(() => {
