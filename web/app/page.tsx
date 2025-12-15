@@ -40,30 +40,14 @@ export default function App() {
     const newTheme = theme === 'dark' ? 'light' : 'dark';
     setTheme(newTheme);
     document.documentElement.setAttribute('data-theme', newTheme);
-    
-    try {
-      await fetch(`${API_URL}/config`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ theme: newTheme })
-      });
-    } catch (e) {
-      console.error("Failed to save config", e);
-    }
+    localStorage.setItem('newt_theme', newTheme);
   };
 
-  const fetchConfig = useCallback(async () => {
-    try {
-      const res = await fetch(`${API_URL}/config`);
-      if (res.ok) {
-        const config = await res.json();
-        if (config.theme) {
-          setTheme(config.theme);
-          document.documentElement.setAttribute('data-theme', config.theme);
-        }
-      }
-    } catch (e) {
-      console.warn("Failed to fetch config (backend might be offline)", e);
+  const fetchConfig = useCallback(() => {
+    const savedTheme = localStorage.getItem('newt_theme');
+    if (savedTheme) {
+      setTheme(savedTheme);
+      document.documentElement.setAttribute('data-theme', savedTheme);
     }
   }, []);
 
@@ -332,27 +316,30 @@ export default function App() {
         if (inputMode !== 'normal') return;
         
         if (e.key === ' ') {
+            e.preventDefault();
             spacePressed = true;
         } else if (spacePressed) {
             if (e.key === 'e') {
+                e.preventDefault();
                 setShowSidebar(prev => !prev);
+                spacePressed = false;
             } else if (e.key === 'h' || e.key === 'ArrowLeft') {
+                e.preventDefault();
                 setFocus('sidebar');
+                spacePressed = false;
             } else if (e.key === 'l' || e.key === 'ArrowRight') {
+                e.preventDefault();
                 setFocus('editor');
+                spacePressed = false;
+            } else {
+                spacePressed = false;
             }
-            spacePressed = false;
         }
-    };
-    const handleKeyUp = (e: KeyboardEvent) => {
-        if (e.key === ' ') spacePressed = false;
     };
 
     window.addEventListener('keydown', handleKeyDown);
-    window.addEventListener('keyup', handleKeyUp);
     return () => {
         window.removeEventListener('keydown', handleKeyDown);
-        window.removeEventListener('keyup', handleKeyUp);
     };
   }, [inputMode]);
 

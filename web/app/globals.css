@@ -1,41 +1,57 @@
 @import "tailwindcss";
 
 :root {
-  /* Monocolor Orange Theme (Dark - Default) */
-  --bg-primary: #0f0800;
-  --bg-secondary: #1a0f00;
-  --bg-tertiary: #2b1600;
+  /* Black/Grey/Green Theme (Dark - Default) */
+  --bg-primary: #000000;
+  --bg-secondary: #121212;
+  --bg-tertiary: #1e1e1e;
   
-  --border-color: #4a2500;
+  --border-color: #333333;
   
-  --text-primary: #ffb700;
-  --text-secondary: #cc9200;
-  --text-muted: #805b00;
+  --text-primary: #e0e0e0;
+  --text-secondary: #a0a0a0;
+  --text-muted: #666666;
   
-  --accent: #ff9500;
-  --accent-hover: #ffaa00;
+  --accent: #22c55e; /* Green-500 */
+  --accent-hover: #4ade80; /* Green-400 */
   
-  --selection: #4a2500;
+  --selection: #14532d; /* Green-900 */
   
   --font-mono: var(--font-geist-mono);
+
+  /* Syntax Highlighting (Dark) */
+  --token-comment: #666666;
+  --token-string: #4ade80;
+  --token-number: #e0e0e0;
+  --token-keyword: #22c55e;
+  --token-function: #e0e0e0;
+  --token-operator: #a0a0a0;
 }
 
 :root[data-theme="light"] {
-  /* Monocolor Orange Theme (Light) */
-  --bg-primary: #fff8e6;
-  --bg-secondary: #ffefcc;
-  --bg-tertiary: #ffe6b3;
+  /* White/Grey/Green Theme (Light) */
+  --bg-primary: #ffffff;
+  --bg-secondary: #f3f4f6;
+  --bg-tertiary: #e5e7eb;
   
-  --border-color: #ffcc80;
+  --border-color: #d1d5db;
   
-  --text-primary: #663c00;
-  --text-secondary: #995a00;
-  --text-muted: #cc8800;
+  --text-primary: #111827;
+  --text-secondary: #4b5563;
+  --text-muted: #9ca3af;
   
-  --accent: #ff9500;
-  --accent-hover: #e68a00;
+  --accent: #16a34a; /* Green-600 */
+  --accent-hover: #15803d; /* Green-700 */
   
-  --selection: #ffe0b3;
+  --selection: #dcfce7; /* Green-100 */
+
+  /* Syntax Highlighting (Light) */
+  --token-comment: #9ca3af;
+  --token-string: #16a34a;
+  --token-number: #1f2937;
+  --token-keyword: #16a34a;
+  --token-function: #1f2937;
+  --token-operator: #4b5563;
 }
 
 body {
@@ -84,4 +100,93 @@ body {
 
 .cell-inactive {
   border-left: 2px solid transparent;
+}
+
+/* PrismJS Syntax Highlighting Overrides */
+code[class*="language-"],
+pre[class*="language-"] {
+  color: var(--text-primary);
+  text-shadow: none;
+  font-family: var(--font-mono) !important;
+  font-size: 1em;
+  text-align: left;
+  white-space: pre;
+  word-spacing: normal;
+  word-break: normal;
+  word-wrap: normal;
+  line-height: 1.5;
+  tab-size: 4;
+  hyphens: none;
+}
+
+.token.comment,
+.token.prolog,
+.token.doctype,
+.token.cdata {
+  color: var(--token-comment);
+}
+
+.token.punctuation {
+  color: var(--text-secondary);
+}
+
+.token.namespace {
+  opacity: .7;
+}
+
+.token.property,
+.token.tag,
+.token.boolean,
+.token.number,
+.token.constant,
+.token.symbol,
+.token.deleted {
+  color: var(--token-number);
+}
+
+.token.selector,
+.token.attr-name,
+.token.string,
+.token.char,
+.token.builtin,
+.token.inserted {
+  color: var(--token-string);
+}
+
+.token.operator,
+.token.entity,
+.token.url,
+.language-css .token.string,
+.style .token.string {
+  color: var(--token-operator);
+}
+
+.token.atrule,
+.token.attr-value,
+.token.keyword {
+  color: var(--token-keyword);
+}
+
+.token.function,
+.token.class-name {
+  color: var(--token-function);
+}
+
+.token.regex,
+.token.important,
+.token.variable {
+  color: var(--accent);
+}
+
+.token.important,
+.token.bold {
+  font-weight: bold;
+}
+
+.token.italic {
+  font-style: italic;
+}
+
+.token.entity {
+  cursor: help;
 }

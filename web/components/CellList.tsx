@@ -131,7 +131,7 @@ export const CellList: React.FC<CellListProps> = ({
             }}
             className={clsx(
               "relative rounded border transition-all group",
-              isSelected && focused ? "border-accent bg-bg-secondary shadow-[0_0_10px_rgba(255,170,0,0.1)]" : "border-border-color bg-bg-primary"
+              isSelected && focused ? "border-accent bg-bg-secondary shadow-[0_0_10px_rgba(34,197,94,0.1)]" : "border-border-color bg-bg-primary"
             )}
           >
             <div className="flex justify-between items-center mb-2 text-xs text-text-muted uppercase tracking-wider select-none p-2 pb-0">
