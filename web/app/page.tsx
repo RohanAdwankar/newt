@@ -37,6 +37,7 @@ export default function App() {
   const [isBackendAvailable, setIsBackendAvailable] = useState(false);
   const [vimMode, setVimMode] = useState(true);
   const spacePressedRef = useRef(false);
+  const pollingInputRef = useRef<HTMLInputElement>(null);
 
   // Helper to get primary selection (last selected)
   const primaryIndex = selectedIndices.length > 0 ? selectedIndices[selectedIndices.length - 1] : 0;
@@ -960,6 +961,7 @@ export default function App() {
         >
             <div className="text-sm mb-2">Polling Interval (s):</div>
             <input 
+                ref={pollingInputRef}
                 type="number" 
                 className="bg-bg-primary border border-border-color p-1 rounded w-full mb-2"
                 onKeyDown={(e) => {
@@ -971,15 +973,29 @@ export default function App() {
                 }}
                 autoFocus
             />
-            <button 
-                className="bg-red-500 text-white px-2 py-1 rounded text-xs w-full"
-                onClick={() => {
-                    setCells(prev => prev.map(c => c.id === contextMenu.cellId ? { ...c, polling_interval: undefined } : c));
-                    setContextMenu(null);
-                }}
-            >
-                Disable Polling
-            </button>
+            <div className="flex gap-2">
+                <button 
+                    className="bg-green-600 hover:bg-green-700 text-white px-2 py-1 rounded text-xs flex-1"
+                    onClick={() => {
+                        if (pollingInputRef.current) {
+                            const val = parseInt(pollingInputRef.current.value);
+                            setCells(prev => prev.map(c => c.id === contextMenu.cellId ? { ...c, polling_interval: isNaN(val) || val <= 0 ? undefined : val } : c));
+                            setContextMenu(null);
+                        }
+                    }}
+                >
+                    Set
+                </button>
+                <button 
+                    className="bg-gray-600 hover:bg-gray-700 text-white px-2 py-1 rounded text-xs flex-1"
+                    onClick={() => {
+                        setCells(prev => prev.map(c => c.id === contextMenu.cellId ? { ...c, polling_interval: undefined } : c));
+                        setContextMenu(null);
+                    }}
+                >
+                    Disable
+                </button>
+            </div>
             <div className="fixed inset-0 -z-10" onClick={() => setContextMenu(null)} />
         </div>
       )}

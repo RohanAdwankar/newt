@@ -80,9 +80,9 @@ export const Toolbar: React.FC<ToolbarProps> = ({
       <button onClick={onPolling} className={btnClass} title="Set Polling Interval">
         <Timer size={18} />
       </button>
-      
+
       <div className="flex-1" />
-      
+
       <button onClick={onToggleVimMode} className={btnClass} title={vimMode ? "Disable Vim Mode" : "Enable Vim Mode"}>
         <Keyboard size={18} className={vimMode ? "text-accent" : ""} />
       </button>
@@ -93,13 +93,13 @@ export const Toolbar: React.FC<ToolbarProps> = ({
       {onExecutionModeChange && (
         <div className="flex items-center gap-2 mr-2 ml-2">
           <span className="text-xs text-text-secondary">Mode:</span>
-          <select 
-            value={executionMode} 
+          <select
+            value={executionMode}
             onChange={(e) => onExecutionModeChange(e.target.value as any)}
             className="bg-bg-tertiary text-text-primary text-xs rounded px-2 py-1 border border-border-color outline-none"
           >
-            <option value="remote">Remote (Core API)</option>
-            <option value="client">Client (Browser)</option>
+            <option value="remote">Server</option>
+            <option value="client">Browser</option>
           </select>
         </div>
       )}
