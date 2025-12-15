@@ -1,21 +1,58 @@
-newt stands for new terminal
+newt - a new terminal
+https://rohanadwankar.github.io/newt/
 
-commands that work
+<add video demo here>
+
+This repo is composed of a terminal inferface and a web GUI for a cross language jupyter notebook like experience.
+The TUI features allows you to create and run cells in a variety of languages including rust, go, cpp, python, and c with the fully interface having vim-like motions.
+The GUI is a static site which allows you to run some supported languages client side in WASM (js,ts,py,c++) as well as an option to connect to a server for the remaining languages.
+The Server is an option for the terminal or the GUI in server mode which operates the core code execution kernel.
+
+## Web GUI
+
+### Client Side Mode
+The goal of client side mode is to run code directly in the browser using WASM.
+This means nothing is sent anywhere externally nor to a server running on your machine, just ran in the browser.
+Currently supported languages are: js, ts, py, cpp
+
+### Server Side Mode
+To enable server side mode activate the server and connect to it from the GUI.
+To use the main site you will have to enable "Local network access" in your browser settings to the left of the url.
+
+## TUI
+To run the TUI first start the server then start the TUI client.
+The TUI will automatically start the server if it is not running.
+To install the TUI via cargo:
+```bash
+cargo install newts
+```
+Then you can run it with:
+```bash
+newts
+```
+ 
+## Vim Motions
+Currently the TUI supports the following vim-like motions: 
+```
 h/l for moving between cells
 i for editing cell
-rust/go/cpp/py/c for types of language cells
+rust/go/cpp/py/c for changint the language types of cells
 enter for running cell
 :ra for running all cells
 y/p/P
 :export
 enter to open images in output cells
-nvim tree:
-space e
-space h/l
-r
-y/p
+```
+There also in a file tree with these supported motions:
+```
+space e for opening/closing file tree
+h/l for switching from file tree to notebook
+r for renaming files
+y/p for file copying
+```
+TODO: support all motions in the gui
 
-
+### Vision
 the goal of newt is to write an alternative approach to using the computer than basic terminals
 so essentially think about how jupyter notebooks had a benefificl impacts to how we approach computing
 for example say the user wants to do a task they would typically do in a terminal

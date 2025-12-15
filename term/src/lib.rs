@@ -356,6 +356,27 @@ fn get_app_dir() -> PathBuf {
 
 #[tokio::main]
 pub async fn run() -> Result<(), Box<dyn Error>> {
+    // Check if server is running
+    let client = reqwest::Client::new();
+    let server_running = client.get("http://127.0.0.1:3000").send().await.is_ok();
+    
+    if !server_running {
+        // Start server in background
+        tokio::spawn(async {
+            server::run_server().await;
+        });
+        
+        // Wait for server to start
+        let mut retries = 0;
+        while retries < 50 {
+            if client.get("http://127.0.0.1:3000").send().await.is_ok() {
+                break;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+            retries += 1;
+        }
+    }
+
     let args = Args::parse();
 
     // Setup terminal

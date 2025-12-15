@@ -1,4 +1,4 @@
-use term_ui::run;
+use newts::run;
 
 fn main() {
     if let Err(e) = run() {

@@ -1237,6 +1237,25 @@ dependencies = [
 ]
 
 [[package]]
+name = "newts"
+version = "0.1.0"
+dependencies = [
+ "arboard",
+ "clap",
+ "crossterm 0.29.0",
+ "directories 5.0.1",
+ "open",
+ "ratatui",
+ "reqwest",
+ "serde",
+ "serde_json",
+ "server",
+ "tempfile",
+ "tokio",
+ "uuid",
+]
+
+[[package]]
 name = "num-traits"
 version = "0.2.19"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2014,24 +2033,6 @@ dependencies = [
  "once_cell",
  "rustix 1.1.2",
  "windows-sys 0.61.2",
-]
-
-[[package]]
-name = "term"
-version = "0.1.0"
-dependencies = [
- "arboard",
- "clap",
- "crossterm 0.29.0",
- "directories 5.0.1",
- "open",
- "ratatui",
- "reqwest",
- "serde",
- "serde_json",
- "tempfile",
- "tokio",
- "uuid",
 ]
 
 [[package]]
