@@ -401,10 +401,10 @@ export default function App() {
         return;
     }
 
-    let context = "";
+    let context: string[] = [];
     for (let i = 0; i < index; i++) {
         if (cells[i].type === cell.type && cell.type !== 'shell') {
-            context += cells[i].content + "\n";
+            context.push(cells[i].content);
         }
     }
 

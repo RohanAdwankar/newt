@@ -11,7 +11,7 @@ pub mod kernel;
 use std::process::Command;
 use tower_http::cors::CorsLayer;
 
-use crate::{CommandRequest, CommandResponse, DisplayData, CellType, Cell, Notebook, ExportResponse};
+use crate::{CommandRequest, CommandResponse, CellType, Notebook, ExportResponse};
 
 //TODO: need a better way for newt cloud to operate with file system than this lol. i think the
 //right approach is to in core-api it should save which directory it is started from and then
