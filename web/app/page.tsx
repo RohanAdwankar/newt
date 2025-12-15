@@ -789,6 +789,56 @@ export default function App() {
     }
   };
 
+  const handleFileDrop = async (source: { path: string, origin: 'local' | 'backend' }, targetOrigin: 'local' | 'backend') => {
+    const { path: src, origin } = source;
+    let dest = src;
+    
+    // Check if dest exists in target, if so append copy
+    const targetFiles = targetOrigin === 'local' ? localFiles : backendFiles;
+    if (targetFiles.includes(dest)) {
+        dest = dest + "_copy";
+    }
+
+    let content: string | null = null;
+    if (origin === 'local') {
+        content = readLocalFile(src);
+    } else {
+        try {
+            const res = await fetch(`${API_URL}/files/read`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ path: src })
+            });
+            if (res.ok) {
+                content = await res.json();
+            }
+        } catch (e) {}
+    }
+    
+    if (!content) {
+        setStatusMessage("Failed to read source file");
+        return;
+    }
+    
+    if (targetOrigin === 'local') {
+        saveLocalFile(dest, content);
+        fetchFiles();
+        setStatusMessage(`Copied ${src} to Browser`);
+    } else {
+        try {
+            await fetch(`${API_URL}/files/save`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ path: dest, content })
+            });
+            fetchFiles();
+            setStatusMessage(`Copied ${src} to Computer`);
+        } catch (e) {
+            setStatusMessage("Backend copy failed");
+        }
+    }
+  };
+
   const deleteFile = async () => {
     const localCount = localFiles.length;
     const computerStartIndex = localCount + 1;
@@ -877,6 +927,7 @@ export default function App() {
             onToggleTheme={toggleTheme}
             onFileClick={handleFileClick}
             onFileContextMenu={handleFileContextMenu}
+            onFileDrop={handleFileDrop}
         />
         <CellList 
             cells={cells} 
