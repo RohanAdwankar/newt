@@ -902,10 +902,20 @@ export default function App() {
     return () => clearInterval(interval);
   }, [cells]);
 
+  const handleCellTypeChange = (newType: string) => {
+    setCells(prev => prev.map((cell, index) => {
+        if (selectedIndices.includes(index)) {
+            return { ...cell, type: newType as CellType };
+        }
+        return cell;
+    }));
+  };
+
   return (
     <div className="flex flex-col h-screen w-screen bg-bg-primary text-text-primary overflow-hidden">
       <Toolbar 
         onSave={saveNotebook}
+        onShare={exportNotebook}
         onNewCell={() => addCell(primaryIndex + 1)}
         onCut={() => { copyCells(); deleteCells(); }}
         onCopy={copyCells}
@@ -922,6 +932,8 @@ export default function App() {
         }}
         executionMode={executionMode}
         onExecutionModeChange={setExecutionMode}
+        cellType={cells[primaryIndex]?.type}
+        onCellTypeChange={handleCellTypeChange}
         onToggleSidebar={() => setShowSidebar(prev => !prev)}
         onToggleTheme={toggleTheme}
         theme={theme}
