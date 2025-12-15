@@ -1,4 +1,4 @@
-use core_api::app;
+use server::app;
 
 #[tokio::main]
 async fn main() {
