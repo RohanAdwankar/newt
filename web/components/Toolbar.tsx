@@ -1,5 +1,5 @@
 import React from 'react';
-import { Save, Plus, Scissors, Copy, Clipboard, Play, Square, RotateCw, Layers, Settings, Folder, Moon, Sun, Keyboard } from 'lucide-react';
+import { Save, Plus, Scissors, Copy, Clipboard, Play, Square, RotateCw, Layers, Settings, Folder, Moon, Sun, Keyboard, Timer } from 'lucide-react';
 
 interface ToolbarProps {
   onSave: () => void;
@@ -11,6 +11,7 @@ interface ToolbarProps {
   onStop: () => void;
   onRestart: () => void;
   onRunAll: () => void;
+  onPolling: () => void;
   executionMode?: 'client' | 'remote';
   onExecutionModeChange?: (mode: 'client' | 'remote') => void;
   onToggleSidebar: () => void;
@@ -30,6 +31,7 @@ export const Toolbar: React.FC<ToolbarProps> = ({
   onStop,
   onRestart,
   onRunAll,
+  onPolling,
   executionMode = 'remote',
   onExecutionModeChange,
   onToggleSidebar,
@@ -74,6 +76,9 @@ export const Toolbar: React.FC<ToolbarProps> = ({
       </button>
       <button onClick={onRunAll} className={btnClass} title="Run All">
         <Layers size={18} />
+      </button>
+      <button onClick={onPolling} className={btnClass} title="Set Polling Interval">
+        <Timer size={18} />
       </button>
       
       <div className="flex-1" />

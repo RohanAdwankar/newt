@@ -907,6 +907,12 @@ export default function App() {
         onStop={() => {}}
         onRestart={() => {}}
         onRunAll={runAllCells}
+        onPolling={() => {
+            if (cells.length > 0) {
+                const cellId = cells[primaryIndex].id;
+                setContextMenu({ x: window.innerWidth / 2 - 100, y: 60, cellId });
+            }
+        }}
         executionMode={executionMode}
         onExecutionModeChange={setExecutionMode}
         onToggleSidebar={() => setShowSidebar(prev => !prev)}
