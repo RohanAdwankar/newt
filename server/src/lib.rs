@@ -453,9 +453,13 @@ pub fn app() -> Router {
 
 pub async fn run_server() {
     let app = app();
-    let listener = tokio::net::TcpListener::bind("127.0.0.1:3000").await.unwrap();
-    // println!("Server running on http://127.0.0.1:3000");
-    axum::serve(listener, app).await.unwrap();
+    // Try to bind to the port, if it fails, assume server is already running and just return
+    if let Ok(listener) = tokio::net::TcpListener::bind("127.0.0.1:3000").await {
+        // println!("Server running on http://127.0.0.1:3000");
+        axum::serve(listener, app).await.unwrap();
+    } else {
+        eprintln!("Server already running on http://127.0.0.1:3000");
+    }
 }
 
 #[derive(Serialize, Deserialize, Default, Debug)]

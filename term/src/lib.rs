@@ -24,6 +24,10 @@ struct Args {
     /// Open a specific notebook file or the file menu
     #[arg(short, long, num_args=0..=1, default_missing_value = "")]
     open: Option<String>,
+
+    /// Run in server mode (no TUI)
+    #[arg(long)]
+    serve: bool,
 }
 
 #[derive(Serialize)]
@@ -356,6 +360,14 @@ fn get_app_dir() -> PathBuf {
 
 #[tokio::main]
 pub async fn run() -> Result<(), Box<dyn Error>> {
+    let args = Args::parse();
+
+    if args.serve {
+        println!("Starting server on http://127.0.0.1:3000");
+        server::run_server().await;
+        return Ok(());
+    }
+
     // Check if server is running
     let client = reqwest::Client::new();
     let server_running = client.get("http://127.0.0.1:3000").send().await.is_ok();
@@ -376,8 +388,6 @@ pub async fn run() -> Result<(), Box<dyn Error>> {
             retries += 1;
         }
     }
-
-    let args = Args::parse();
 
     // Setup terminal
     enable_raw_mode()?;
