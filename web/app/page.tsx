@@ -7,6 +7,7 @@ import { CommandBar } from '../components/CommandBar';
 import { Toolbar } from '../components/Toolbar';
 import { v4 as uuidv4 } from 'uuid';
 import { createKernel, ExecutionMode } from '../lib/kernels';
+import { arrayMove } from '@dnd-kit/sortable';
 
 const API_URL = 'http://127.0.0.1:3000';
 
@@ -614,6 +615,11 @@ export default function App() {
     setInputMode('editing');
   };
 
+  const handleReorder = (oldIndex: number, newIndex: number) => {
+    setCells((items) => arrayMove(items, oldIndex, newIndex));
+    setSelectedIndices([newIndex]);
+  };
+
   const deleteCells = () => {
     setCells(prev => prev.filter((_, i) => !selectedIndices.includes(i)));
     // Reset selection to something safe
@@ -951,6 +957,7 @@ export default function App() {
             onRunCell={runCell}
             onAddCell={addCell}
             onEditCell={() => setInputMode('editing')}
+            onReorder={handleReorder}
         />
       </div>
       

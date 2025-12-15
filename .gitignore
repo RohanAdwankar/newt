@@ -1,2 +1,3 @@
 target/**
 web/next-env.d.ts
+/node_modules
