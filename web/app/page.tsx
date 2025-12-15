@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { Sidebar } from '../components/Sidebar';
 import { CellList, Cell, CellType } from '../components/CellList';
 import { CommandBar } from '../components/CommandBar';
@@ -15,7 +15,8 @@ type InputMode = 'normal' | 'editing' | 'command' | 'renaming' | 'polling';
 
 export default function App() {
   const [cells, setCells] = useState<Cell[]>([]);
-  const [files, setFiles] = useState<string[]>([]);
+  const [localFiles, setLocalFiles] = useState<string[]>([]);
+  const [backendFiles, setBackendFiles] = useState<string[]>([]);
   const [focus, setFocus] = useState<Focus>('editor');
   const [inputMode, setInputMode] = useState<InputMode>('normal');
   const [selectedIndices, setSelectedIndices] = useState<number[]>([0]);
@@ -26,15 +27,53 @@ export default function App() {
   const [fileContextMenu, setFileContextMenu] = useState<{ x: number, y: number, index: number } | null>(null);
   const [statusMessage, setStatusMessage] = useState<string | null>(null);
   const [filePath, setFilePath] = useState<string | null>(null);
+  const [fileOrigin, setFileOrigin] = useState<'local' | 'backend'>('local');
   const [clipboardCells, setClipboardCells] = useState<Cell[]>([]);
-  const [clipboardFile, setClipboardFile] = useState<string | null>(null);
+  const [clipboardFile, setClipboardFile] = useState<{ path: string, origin: 'local' | 'backend' } | null>(null);
   const [showSidebar, setShowSidebar] = useState(false);
   const [renameInput, setRenameInput] = useState('');
   const [theme, setTheme] = useState('dark');
   const [executionMode, setExecutionMode] = useState<ExecutionMode>('client');
+  const spacePressedRef = useRef(false);
 
   // Helper to get primary selection (last selected)
   const primaryIndex = selectedIndices.length > 0 ? selectedIndices[selectedIndices.length - 1] : 0;
+
+  // Local Storage FS Helpers
+  const getLocalFiles = useCallback((): string[] => {
+    try {
+        return JSON.parse(localStorage.getItem('newt_files_index') || '[]');
+    } catch {
+        return [];
+    }
+  }, []);
+
+  const saveLocalFile = useCallback((path: string, content: string) => {
+    localStorage.setItem('newt_file:' + path, content);
+    const files = getLocalFiles();
+    if (!files.includes(path)) {
+        files.push(path);
+        localStorage.setItem('newt_files_index', JSON.stringify(files));
+    }
+  }, [getLocalFiles]);
+
+  const readLocalFile = useCallback((path: string): string | null => {
+    return localStorage.getItem('newt_file:' + path);
+  }, []);
+
+  const deleteLocalFile = useCallback((path: string) => {
+    localStorage.removeItem('newt_file:' + path);
+    const files = getLocalFiles().filter(f => f !== path);
+    localStorage.setItem('newt_files_index', JSON.stringify(files));
+  }, [getLocalFiles]);
+
+  const renameLocalFile = useCallback((oldPath: string, newPath: string) => {
+    const content = readLocalFile(oldPath);
+    if (content) {
+        saveLocalFile(newPath, content);
+        deleteLocalFile(oldPath);
+    }
+  }, [readLocalFile, saveLocalFile, deleteLocalFile]);
 
   const toggleTheme = async () => {
     const newTheme = theme === 'dark' ? 'light' : 'dark';
@@ -136,16 +175,19 @@ export default function App() {
 
   // Fetch files on mount
   const fetchFiles = useCallback(async () => {
+    const local = getLocalFiles();
+    setLocalFiles(local);
+    
     try {
       const res = await fetch(`${API_URL}/files`);
       if (!res.ok) throw new Error(`HTTP error! status: ${res.status}`);
-      const data = await res.json();
-      setFiles(data);
+      const backend = await res.json();
+      setBackendFiles(backend);
     } catch (e) {
-      console.warn("Failed to fetch files (backend might be offline)", e);
-      setFiles([]); // Set empty list on error
+      console.warn("Failed to fetch backend files", e);
+      setBackendFiles([]);
     }
-  }, []);
+  }, [getLocalFiles]);
 
   useEffect(() => {
     fetchFiles();
@@ -265,9 +307,13 @@ export default function App() {
             break;
         }
       } else if (focus === 'sidebar') {
+        const localCount = localFiles.length;
+        const computerStartIndex = localCount + 1;
+        const totalItems = localCount + 1 + backendFiles.length + 1;
+
         switch (e.key) {
           case 'j':
-            setSelectedFileIndex(prev => Math.min(prev + 1, files.length));
+            setSelectedFileIndex(prev => Math.min(prev + 1, totalItems - 1));
             break;
           case 'k':
             setSelectedFileIndex(prev => Math.max(prev - 1, 0));
@@ -280,21 +326,27 @@ export default function App() {
             openFile(selectedFileIndex);
             break;
           case 'r':
-            if (selectedFileIndex > 0) {
-                setRenameInput(files[selectedFileIndex - 1]);
+            if (selectedFileIndex > 0 && selectedFileIndex <= localCount) {
+                setRenameInput(localFiles[selectedFileIndex - 1]);
+                setInputMode('renaming');
+            } else if (selectedFileIndex > computerStartIndex) {
+                setRenameInput(backendFiles[selectedFileIndex - computerStartIndex - 1]);
                 setInputMode('renaming');
             }
             break;
           case 'y':
-            if (selectedFileIndex > 0) {
-                setClipboardFile(files[selectedFileIndex - 1]);
-                setStatusMessage(`Yanked ${files[selectedFileIndex - 1]}`);
+            if (selectedFileIndex > 0 && selectedFileIndex <= localCount) {
+                setClipboardFile({ path: localFiles[selectedFileIndex - 1], origin: 'local' });
+                setStatusMessage(`Yanked ${localFiles[selectedFileIndex - 1]}`);
+            } else if (selectedFileIndex > computerStartIndex) {
+                setClipboardFile({ path: backendFiles[selectedFileIndex - computerStartIndex - 1], origin: 'backend' });
+                setStatusMessage(`Yanked ${backendFiles[selectedFileIndex - computerStartIndex - 1]}`);
             }
             break;
           case 'p':
           case 'P':
             if (clipboardFile) {
-                await pasteFile(clipboardFile);
+                await pasteFile();
             }
             break;
           case ':':
@@ -307,32 +359,33 @@ export default function App() {
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [cells, files, focus, inputMode, selectedIndices, selectedFileIndex, commandInput, pollingInput, clipboardCells, clipboardFile, showSidebar, renameInput]);
+  }, [cells, localFiles, backendFiles, focus, inputMode, selectedIndices, selectedFileIndex, commandInput, pollingInput, clipboardCells, clipboardFile, showSidebar, renameInput]);
 
   // Space chord handler
   useEffect(() => {
-    let spacePressed = false;
     const handleKeyDown = (e: KeyboardEvent) => {
         if (inputMode !== 'normal') return;
         
         if (e.key === ' ') {
             e.preventDefault();
-            spacePressed = true;
-        } else if (spacePressed) {
+            spacePressedRef.current = true;
+            // Reset after 1s to prevent getting stuck
+            setTimeout(() => { spacePressedRef.current = false; }, 1000);
+        } else if (spacePressedRef.current) {
             if (e.key === 'e') {
                 e.preventDefault();
                 setShowSidebar(prev => !prev);
-                spacePressed = false;
+                spacePressedRef.current = false;
             } else if (e.key === 'h' || e.key === 'ArrowLeft') {
                 e.preventDefault();
                 setFocus('sidebar');
-                spacePressed = false;
+                spacePressedRef.current = false;
             } else if (e.key === 'l' || e.key === 'ArrowRight') {
                 e.preventDefault();
                 setFocus('editor');
-                spacePressed = false;
+                spacePressedRef.current = false;
             } else {
-                spacePressed = false;
+                spacePressedRef.current = false;
             }
         }
     };
@@ -345,17 +398,59 @@ export default function App() {
 
 
   const executeCommand = async (cmd: string) => {
-    if (cmd === 'ra' || cmd === 'runall') {
+    const parts = cmd.split(' ');
+    const command = parts[0];
+    const args = parts.slice(1);
+
+    if (command === 'ra' || command === 'runall') {
         runAllCells();
-    } else if (cmd === 'export') {
+    } else if (command === 'export') {
         await exportNotebook();
-    } else if (cmd === 'w') {
-        await saveNotebook();
-    } else if (cmd === 'q') {
+    } else if (command === 'w') {
+        if (args.length > 0) {
+            setFilePath(args[0]);
+            await saveNotebook(args[0]);
+        } else {
+            await saveNotebook();
+        }
+    } else if (command === 'q') {
         // Close?
     }
   };
 
+  const saveNotebook = async (pathOverride?: string | unknown) => {
+    let path = (typeof pathOverride === 'string' ? pathOverride : undefined) || filePath;
+    
+    if (!path) {
+        const name = window.prompt("Enter notebook name:", "notebook.newt");
+        if (!name) {
+            setStatusMessage("Save cancelled");
+            return;
+        }
+        path = name;
+        setFilePath(path);
+    }
+    
+    const content = JSON.stringify(cells);
+    
+    if (fileOrigin === 'local') {
+        saveLocalFile(path, content);
+        setStatusMessage(`Saved locally to ${path}`);
+        setLocalFiles(getLocalFiles());
+    } else {
+        try {
+            await fetch(`${API_URL}/files/save`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ path: path, content })
+            });
+            setStatusMessage(`Saved to ${path}`);
+            fetchFiles();
+        } catch (e) {
+            setStatusMessage("Backend save failed");
+        }
+    }
+  };
   const runCell = async (index: number) => {
     const cell = cells[index];
     if (!cell) return;
@@ -469,25 +564,55 @@ export default function App() {
   };
 
   const openFile = async (index: number) => {
+    const localCount = localFiles.length;
+    const computerStartIndex = localCount + 1;
+
     if (index === 0) {
-        // New Notebook
+        // New Local Notebook
         setCells([{ id: uuidv4(), content: '', output: '', type: 'python' }]);
         setFilePath(null);
+        setFileOrigin('local');
+        setFocus('editor');
+        setSelectedIndices([0]);
+    } else if (index <= localCount) {
+        // Open Local File
+        const file = localFiles[index - 1];
+        const content = readLocalFile(file);
+        if (content) {
+            try {
+                const loadedCells = JSON.parse(content);
+                setCells(loadedCells);
+                setFilePath(file);
+                setFileOrigin('local');
+                setFocus('editor');
+                setSelectedIndices([0]);
+            } catch (e) {
+                setStatusMessage("Error parsing local notebook");
+            }
+        }
+    } else if (index === computerStartIndex) {
+        // New Backend Notebook
+        setCells([{ id: uuidv4(), content: '', output: '', type: 'python' }]);
+        setFilePath(null);
+        setFileOrigin('backend');
         setFocus('editor');
         setSelectedIndices([0]);
     } else {
-        const file = files[index - 1];
+        // Open Backend File
+        const file = backendFiles[index - computerStartIndex - 1];
         try {
             const res = await fetch(`${API_URL}/files/read`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ path: file })
             });
+            if (!res.ok) throw new Error("Backend read failed");
             const content = await res.json();
             try {
                 const loadedCells = JSON.parse(content);
                 setCells(loadedCells);
                 setFilePath(file);
+                setFileOrigin('backend');
                 setFocus('editor');
                 setSelectedIndices([0]);
             } catch (e) {
@@ -499,28 +624,19 @@ export default function App() {
     }
   };
 
-  const saveNotebook = async () => {
-    if (!filePath) {
-        setStatusMessage("No file name");
-        return;
-    }
-    try {
-        await fetch(`${API_URL}/files/save`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ path: filePath, content: JSON.stringify(cells) })
-        });
-        setStatusMessage(`Saved to ${filePath}`);
-        fetchFiles();
-    } catch (e) {
-        setStatusMessage("Save failed");
-    }
-  };
 
   const handleRename = async () => {
-    if (selectedFileIndex > 0) {
-        const oldPath = files[selectedFileIndex - 1];
-        const newPath = renameInput;
+    const localCount = localFiles.length;
+    const computerStartIndex = localCount + 1;
+    const newPath = renameInput;
+
+    if (selectedFileIndex > 0 && selectedFileIndex <= localCount) {
+        const oldPath = localFiles[selectedFileIndex - 1];
+        renameLocalFile(oldPath, newPath);
+        fetchFiles();
+        setStatusMessage(`Renamed locally to ${newPath}`);
+    } else if (selectedFileIndex > computerStartIndex) {
+        const oldPath = backendFiles[selectedFileIndex - computerStartIndex - 1];
         try {
             await fetch(`${API_URL}/files/rename`, {
                 method: 'POST',
@@ -530,39 +646,87 @@ export default function App() {
             fetchFiles();
             setStatusMessage(`Renamed to ${newPath}`);
         } catch (e) {
-            setStatusMessage("Rename failed");
+            setStatusMessage("Backend rename failed");
         }
     }
   };
 
-  const pasteFile = async (src: string) => {
-    let dest = src;
-    dest = dest + "_copy"; 
+  const pasteFile = async () => {
+    if (!clipboardFile) return;
     
-    try {
-        await fetch(`${API_URL}/files/copy`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ src, dest })
-        });
+    const { path: src, origin } = clipboardFile;
+    let dest = src + "_copy";
+    
+    const localCount = localFiles.length;
+    const computerStartIndex = localCount + 1;
+    
+    let targetOrigin: 'local' | 'backend' = 'local';
+    if (selectedFileIndex >= computerStartIndex) {
+        targetOrigin = 'backend';
+    }
+    
+    let content: string | null = null;
+    if (origin === 'local') {
+        content = readLocalFile(src);
+    } else {
+        try {
+            const res = await fetch(`${API_URL}/files/read`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ path: src })
+            });
+            if (res.ok) {
+                content = await res.json();
+            }
+        } catch (e) {}
+    }
+    
+    if (!content) {
+        setStatusMessage("Failed to read source file");
+        return;
+    }
+    
+    if (targetOrigin === 'local') {
+        saveLocalFile(dest, content);
         fetchFiles();
-        setStatusMessage(`Pasted to ${dest}`);
-    } catch (e) {
-        setStatusMessage("Paste failed");
+        setStatusMessage(`Pasted locally to ${dest}`);
+    } else {
+        try {
+            await fetch(`${API_URL}/files/save`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ path: dest, content })
+            });
+            fetchFiles();
+            setStatusMessage(`Pasted to ${dest}`);
+        } catch (e) {
+            setStatusMessage("Backend paste failed");
+        }
     }
   };
 
-  const deleteFile = async (filename: string) => {
-    try {
-        await fetch(`${API_URL}/files/delete`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ path: filename })
-        });
+  const deleteFile = async () => {
+    const localCount = localFiles.length;
+    const computerStartIndex = localCount + 1;
+
+    if (selectedFileIndex > 0 && selectedFileIndex <= localCount) {
+        const filename = localFiles[selectedFileIndex - 1];
+        deleteLocalFile(filename);
         fetchFiles();
-        setStatusMessage(`Deleted ${filename}`);
-    } catch (e) {
-        setStatusMessage("Delete failed");
+        setStatusMessage(`Deleted locally ${filename}`);
+    } else if (selectedFileIndex > computerStartIndex) {
+        const filename = backendFiles[selectedFileIndex - computerStartIndex - 1];
+        try {
+            await fetch(`${API_URL}/files/delete`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ path: filename })
+            });
+            fetchFiles();
+            setStatusMessage(`Deleted ${filename}`);
+        } catch (e) {
+            setStatusMessage("Backend delete failed");
+        }
     }
   };
 
@@ -634,7 +798,8 @@ export default function App() {
       />
       <div className="flex-1 flex overflow-hidden">
         <Sidebar 
-            files={files} 
+            localFiles={localFiles}
+            backendFiles={backendFiles}
             selectedIndex={selectedFileIndex} 
             focused={focus === 'sidebar'} 
             visible={showSidebar}
@@ -700,8 +865,14 @@ export default function App() {
             <div 
                 className="p-1 hover:bg-bg-tertiary cursor-pointer text-sm"
                 onClick={() => {
-                    if (fileContextMenu.index > 0) {
-                        setRenameInput(files[fileContextMenu.index - 1]);
+                    const localCount = localFiles.length;
+                    const computerStartIndex = localCount + 1;
+                    
+                    if (fileContextMenu.index > 0 && fileContextMenu.index <= localCount) {
+                        setRenameInput(localFiles[fileContextMenu.index - 1]);
+                        setInputMode('renaming');
+                    } else if (fileContextMenu.index > computerStartIndex) {
+                        setRenameInput(backendFiles[fileContextMenu.index - computerStartIndex - 1]);
                         setInputMode('renaming');
                     }
                     setFileContextMenu(null);
@@ -712,9 +883,15 @@ export default function App() {
             <div 
                 className="p-1 hover:bg-bg-tertiary cursor-pointer text-sm"
                 onClick={() => {
-                    if (fileContextMenu.index > 0) {
-                        setClipboardFile(files[fileContextMenu.index - 1]);
-                        setStatusMessage(`Yanked ${files[fileContextMenu.index - 1]}`);
+                    const localCount = localFiles.length;
+                    const computerStartIndex = localCount + 1;
+                    
+                    if (fileContextMenu.index > 0 && fileContextMenu.index <= localCount) {
+                        setClipboardFile({ path: localFiles[fileContextMenu.index - 1], origin: 'local' });
+                        setStatusMessage(`Yanked ${localFiles[fileContextMenu.index - 1]}`);
+                    } else if (fileContextMenu.index > computerStartIndex) {
+                        setClipboardFile({ path: backendFiles[fileContextMenu.index - computerStartIndex - 1], origin: 'backend' });
+                        setStatusMessage(`Yanked ${backendFiles[fileContextMenu.index - computerStartIndex - 1]}`);
                     }
                     setFileContextMenu(null);
                 }}
@@ -725,7 +902,7 @@ export default function App() {
                 className="p-1 hover:bg-bg-tertiary cursor-pointer text-sm"
                 onClick={() => {
                     if (clipboardFile) {
-                        pasteFile(clipboardFile);
+                        pasteFile();
                     }
                     setFileContextMenu(null);
                 }}
@@ -735,9 +912,7 @@ export default function App() {
             <div 
                 className="p-1 hover:bg-bg-tertiary cursor-pointer text-sm text-red-500"
                 onClick={() => {
-                    if (fileContextMenu.index > 0) {
-                        deleteFile(files[fileContextMenu.index - 1]);
-                    }
+                    deleteFile();
                     setFileContextMenu(null);
                 }}
             >
