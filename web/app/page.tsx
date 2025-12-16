@@ -990,6 +990,7 @@ export default function App() {
             onEditCell={() => setInputMode('editing')}
             onReorder={handleReorder}
             fullscreenCellId={fullscreenCellId}
+            vimMode={vimMode}
         />
       </div>
       
