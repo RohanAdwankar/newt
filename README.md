@@ -42,12 +42,32 @@ Then you can run it with:
 newts
 ```
  
-## Vim Motions & Commands
+## Keybindings & Actions
 
-| Command | Action | TUI | GUI |
-| :--- | :--- | :---: | :---: |
-| `j` / `k` | Move selection down / up | ✅ | ✅ |
-| `h` / `l` | Focus sidebar / editor | ✅ | ✅ |
+| Action | Vim Mode | Standard Mode | Notes |
+| :--- | :---: | :---: | :--- |
+| **Navigation** | | | |
+| Move Selection Down | `j` | `Arrow Down` | |
+| Move Selection Up | `k` | `Arrow Up` | |
+| Focus Sidebar | `h` | `Arrow Left` | |
+| Focus Editor | `l` | `Arrow Right` | From sidebar |
+| **Cell Operations** | | | |
+| Edit Cell | `i` | `Enter` | |
+| Exit Edit Mode | `Esc` | `Esc` | |
+| Run Cell | `Shift+Enter` | `Shift+Enter` | |
+| Add Cell Below | `o` | (UI Button) | |
+| Add Cell Above | `O` | - | |
+| Delete Cell | `d` | - | |
+| Copy Cell | `y` | - | |
+| Paste Cell Below | `p` | - | |
+| Paste Cell Above | `P` | - | |
+| Toggle Fullscreen | `f` | (UI Button) | |
+| **Commands** | | | |
+| Open Command Bar | `:` | - | |
+| Export Notebook | `:export` | Export Button | |
+| Save Notebook | `:w` | Save Button | |
+| Quit / Close | `:q` | - | |
+
 | `i` | Edit cell | ✅ | ✅ |
 | `Enter` | Run cell / Open file | ✅ | ✅ |
 | `o` / `O` | Add cell below / above | ✅ | ✅ |
