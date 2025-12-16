@@ -695,7 +695,8 @@ async fn run_app<B: Backend + std::io::Write>(terminal: &mut Terminal<B>, app: &
                                             if let Some(i) = app.list_state.selected() {
                                                 let mut new_cell = cell.clone();
                                                 new_cell.id = uuid::Uuid::new_v4().to_string();
-                                                app.cells.insert((i / 2) + 1, new_cell);
+                                                let idx = if app.cells.is_empty() { 0 } else { (i / 2) + 1 };
+                                                app.cells.insert(idx, new_cell);
                                                 app.status_message = Some("Cell pasted".to_string());
                                             }
                                         }
@@ -735,7 +736,8 @@ async fn run_app<B: Backend + std::io::Write>(terminal: &mut Terminal<B>, app: &
                                     }
                                     KeyCode::Char('o') => {
                                         if let Some(i) = app.list_state.selected() {
-                                            app.insert_cell((i / 2) + 1, CellType::Shell);
+                                            let idx = if app.cells.is_empty() { 0 } else { (i / 2) + 1 };
+                                            app.insert_cell(idx, CellType::Shell);
                                         }
                                     }
                                     KeyCode::Char('O') => {
