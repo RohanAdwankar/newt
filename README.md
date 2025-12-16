@@ -1,5 +1,10 @@
-newt - a new terminal
-https://rohanadwankar.github.io/newt/
+<div align="center">
+ <img width="600" height="160" class="center" alt="newt" src="https://github.com/user-attachments/assets/4c881e5a-6350-4a46-9ff0-e9793b5d1a2f"/>
+ <p>newt - a new terminal</p>
+ <M>https://rohanadwankar.github.io/newt/</M>
+</div>
+
+
 
 <add video demo here>
 
@@ -44,36 +49,36 @@ newts
  
 ## Keybindings & Actions
 
-| Action | Vim Mode | Standard Mode | Notes |
-| :--- | :---: | :---: | :--- |
-| **Navigation** | | | |
-| Move Selection Down | `j` | `Arrow Down` | |
-| Move Selection Up | `k` | `Arrow Up` | |
-| Focus Sidebar | `h` | `Arrow Left` | |
-| Focus Editor | `l` | `Arrow Right` | From sidebar |
-| Toggle Sidebar | `Space e` | (UI Button) | |
-| **Cell Operations** | | | |
-| Edit Cell | `i` | `Enter` | |
-| Exit Edit Mode | `Esc` | `Esc` | |
-| Run Cell | `Enter` | `Shift+Enter` | |
-| Add Cell Below | `o` | (UI Button) | |
-| Add Cell Above | `O` | - | |
-| Delete Cell | `d` | - | |
-| Copy Cell | `y` | - | |
-| Paste Cell Below | `p` | - | |
-| Paste Cell Above | `P` | - | |
-| Toggle Fullscreen | `f` | (UI Button) | |
-| Polling Mode | `r` | - | Set auto-run interval |
-| **Sidebar Operations** | | | |
-| Rename File | `r` | - | |
-| Copy File | `y` | - | |
-| Paste File | `p` | - | |
-| **Commands** | | | |
-| Run All Cells | `:ra` | Run All Button | |
-| Export Notebook | `:export` | Export Button | |
-| Save Notebook | `:w` | Save Button | |
-| Quit / Close | `:q` | - | |
-| Change Language | `:rust`, `:py`, `:ts`, `:js`, `:cpp`, `:c` | Dropdown | |
+| Action | Vim Mode | Standard Mode |
+| :--- | :---: | :---: |
+| **Navigation** | | |
+| Move Selection Down | `j` | `Arrow Down` |
+| Move Selection Up | `k` | `Arrow Up` |
+| Focus Sidebar | `h` | `Arrow Left` |
+| Focus Editor | `l` | `Arrow Right` |
+| Toggle Sidebar | `Space e` | (UI Button) |
+| **Cell Operations** | | |
+| Edit Cell | `i` | `Enter` |
+| Exit Edit Mode | `Esc` | `Esc` |
+| Run Cell | `Enter` | `Shift+Enter` |
+| Add Cell Below | `o` | (UI Button) |
+| Add Cell Above | `O` | - |
+| Delete Cell | `d` | - |
+| Copy Cell | `y` | - |
+| Paste Cell Below | `p` | - |
+| Paste Cell Above | `P` | - |
+| Toggle Fullscreen | `f` | (UI Button) |
+| Polling Mode | `r` | - |
+| **Sidebar Operations** | | |
+| Rename File | `r` | - |
+| Copy File | `y` | - |
+| Paste File | `p` | - |
+| **Commands** | | |
+| Run All Cells | `:ra` | Run All Button |
+| Export Notebook | `:export` | Export Button |
+| Save Notebook | `:w` | Save Button |
+| Quit / Close | `:q` | - |
+| Change Language | `:rust`, `:py`, `:ts`, `:js`, `:cpp`, `:c` | Dropdown |
 
 
 ### Vision
