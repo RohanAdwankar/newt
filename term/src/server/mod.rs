@@ -396,6 +396,7 @@ pub fn app() -> Router {
         .route("/files/save", post(save_file))
         .route("/files/rename", post(rename_file))
         .route("/files/copy", post(copy_file))
+        .route("/files/delete", post(delete_file))
         .route("/config", get(get_config).post(update_config))
         .layer(CorsLayer::permissive())
 }

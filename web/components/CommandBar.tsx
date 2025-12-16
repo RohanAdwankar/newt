@@ -2,7 +2,7 @@ import React from 'react';
 import { clsx } from 'clsx';
 
 interface CommandBarProps {
-  mode: 'normal' | 'editing' | 'command' | 'renaming' | 'polling';
+  mode: 'normal' | 'editing' | 'command' | 'renaming' | 'polling' | 'confirm_delete';
   commandInput: string;
   pollingInput?: string;
   statusMessage: string | null;
@@ -12,9 +12,9 @@ interface CommandBarProps {
 export const CommandBar: React.FC<CommandBarProps> = ({ mode, commandInput, pollingInput, statusMessage, filePath }) => {
   return (
     <div className="h-8 border-t border-border-color bg-bg-secondary flex items-center px-2 text-sm font-mono shrink-0">
-      {mode === 'command' ? (
+      {mode === 'command' || mode === 'confirm_delete' ? (
         <div className="flex items-center w-full text-text-primary">
-          <span className="text-accent mr-1">:</span>
+          <span className="text-accent mr-1">{mode === 'confirm_delete' ? '' : ':'}</span>
           <span className="flex-1 outline-none bg-transparent">{commandInput}</span>
         </div>
       ) : mode === 'polling' ? (

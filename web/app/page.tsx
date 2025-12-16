@@ -12,7 +12,7 @@ import { arrayMove } from '@dnd-kit/sortable';
 const API_URL = 'http://127.0.0.1:3000';
 
 type Focus = 'editor' | 'sidebar';
-type InputMode = 'normal' | 'editing' | 'command' | 'renaming' | 'polling';
+type InputMode = 'normal' | 'editing' | 'command' | 'renaming' | 'polling' | 'confirm_delete';
 
 export default function App() {
   const [cells, setCells] = useState<Cell[]>([]);
@@ -31,6 +31,7 @@ export default function App() {
   const [fileOrigin, setFileOrigin] = useState<'local' | 'backend'>('local');
   const [clipboardCells, setClipboardCells] = useState<Cell[]>([]);
   const [clipboardFile, setClipboardFile] = useState<{ path: string, origin: 'local' | 'backend' } | null>(null);
+  const [fileToDelete, setFileToDelete] = useState<{ path: string, origin: 'local' | 'backend' } | null>(null);
   const [showSidebar, setShowSidebar] = useState(false);
   const [renameInput, setRenameInput] = useState('');
   const [theme, setTheme] = useState('dark');
@@ -79,6 +80,26 @@ export default function App() {
         deleteLocalFile(oldPath);
     }
   }, [readLocalFile, saveLocalFile, deleteLocalFile]);
+
+  const deleteFile = async (path: string, origin: 'local' | 'backend') => {
+    if (origin === 'local') {
+        deleteLocalFile(path);
+        setLocalFiles(getLocalFiles());
+        setStatusMessage(`Deleted ${path}`);
+    } else {
+        try {
+            await fetch(`${API_URL}/files/delete`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ path })
+            });
+            setStatusMessage(`Deleted ${path}`);
+            fetchFiles();
+        } catch (e) {
+            setStatusMessage("Backend delete failed");
+        }
+    }
+  };
 
   const toggleTheme = async () => {
     const newTheme = theme === 'dark' ? 'light' : 'dark';
@@ -258,6 +279,21 @@ export default function App() {
         return;
       }
 
+      if (inputMode === 'confirm_delete') {
+        e.preventDefault();
+        if (e.key === 'y' || e.key === 'Y') {
+            if (fileToDelete) {
+                await deleteFile(fileToDelete.path, fileToDelete.origin);
+            }
+        } else {
+            setStatusMessage("Delete cancelled");
+        }
+        setInputMode('normal');
+        setCommandInput('');
+        setFileToDelete(null);
+        return;
+      }
+
       if (inputMode === 'renaming') {
          if (e.key === 'Enter') {
             e.preventDefault();
@@ -385,6 +421,19 @@ export default function App() {
             break;
           case 'Enter':
             openFile(selectedFileIndex);
+            break;
+          case 'd':
+            if (selectedFileIndex > 0 && selectedFileIndex <= localCount) {
+                const file = localFiles[selectedFileIndex - 1];
+                setFileToDelete({ path: file, origin: 'local' });
+                setInputMode('confirm_delete');
+                setCommandInput(`Remove ${file}? y/N: `);
+            } else if (isBackendAvailable && selectedFileIndex > computerStartIndex) {
+                const file = backendFiles[selectedFileIndex - computerStartIndex - 1];
+                setFileToDelete({ path: file, origin: 'backend' });
+                setInputMode('confirm_delete');
+                setCommandInput(`Remove ${file}? y/N: `);
+            }
             break;
           case 'r':
             if (selectedFileIndex > 0 && selectedFileIndex <= localCount) {
@@ -867,33 +916,6 @@ export default function App() {
         }
     }
   };
-
-  const deleteFile = async () => {
-    const localCount = localFiles.length;
-    const computerStartIndex = localCount + 1;
-
-    if (selectedFileIndex > 0 && selectedFileIndex <= localCount) {
-        const filename = localFiles[selectedFileIndex - 1];
-        deleteLocalFile(filename);
-        fetchFiles();
-        setStatusMessage(`Deleted locally ${filename}`);
-    } else if (selectedFileIndex > computerStartIndex) {
-        const filename = backendFiles[selectedFileIndex - computerStartIndex - 1];
-        try {
-            await fetch(`${API_URL}/files/delete`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ path: filename })
-            });
-            fetchFiles();
-            setStatusMessage(`Deleted ${filename}`);
-        } catch (e) {
-            setStatusMessage("Backend delete failed");
-        }
-    }
-  };
-
-
 
   useEffect(() => {
     const interval = setInterval(() => {

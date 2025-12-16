@@ -131,6 +131,7 @@ pub struct App {
     pub status_message: Option<String>,
     pub rename_input: String,
     pub polling_input: String,
+    pub file_to_delete: Option<PathBuf>,
 }
 
 #[derive(PartialEq)]
@@ -146,6 +147,7 @@ pub enum InputMode {
     Command,
     Renaming,
     Polling,
+    ConfirmDelete,
 }
 
 impl App {
@@ -168,6 +170,7 @@ impl App {
             status_message: None,
             rename_input: String::new(),
             polling_input: String::new(),
+            file_to_delete: None,
         };
 
         // Always refresh file list for sidebar
@@ -529,6 +532,29 @@ async fn run_app<B: Backend + std::io::Write>(terminal: &mut Terminal<B>, app: &
 
                 // Handle keys based on Focus and InputMode
                 match app.input_mode {
+                    InputMode::ConfirmDelete => {
+                        match key.code {
+                            KeyCode::Char('y') | KeyCode::Char('Y') => {
+                                if let Some(path) = &app.file_to_delete {
+                                    if let Err(e) = fs::remove_file(path) {
+                                        app.status_message = Some(format!("Error deleting file: {}", e));
+                                    } else {
+                                        app.status_message = Some(format!("Deleted {}", path.display()));
+                                        app.refresh_file_list();
+                                    }
+                                }
+                                app.input_mode = InputMode::Normal;
+                                app.command_input.clear();
+                                app.file_to_delete = None;
+                            }
+                            _ => {
+                                app.status_message = Some("Delete cancelled".to_string());
+                                app.input_mode = InputMode::Normal;
+                                app.command_input.clear();
+                                app.file_to_delete = None;
+                            }
+                        }
+                    }
                     InputMode::Normal => {
                         match app.focus {
                             Focus::Sidebar => {
@@ -583,6 +609,17 @@ async fn run_app<B: Backend + std::io::Write>(terminal: &mut Terminal<B>, app: &
                                                 if let Some(path) = app.available_files.get(i - 1) {
                                                     app.rename_input = path.file_name().unwrap().to_string_lossy().to_string();
                                                     app.input_mode = InputMode::Renaming;
+                                                }
+                                            }
+                                        }
+                                    }
+                                    KeyCode::Char('d') => {
+                                        if let Some(i) = app.file_list_state.selected() {
+                                            if i > 0 {
+                                                if let Some(path) = app.available_files.get(i - 1) {
+                                                    app.file_to_delete = Some(path.clone());
+                                                    app.input_mode = InputMode::ConfirmDelete;
+                                                    app.command_input = format!("Remove {}? y/N: ", path.display());
                                                 }
                                             }
                                         }
@@ -679,7 +716,7 @@ async fn run_app<B: Backend + std::io::Write>(terminal: &mut Terminal<B>, app: &
                                     }
                                     KeyCode::Char('j') => {
                                         if let Some(i) = app.list_state.selected() {
-                                            if i < app.cells.len() * 2 - 1 {
+                                            if !app.cells.is_empty() && i < app.cells.len() * 2 - 1 {
                                                 app.list_state.select(Some(i + 1));
                                             }
                                         }
@@ -1312,6 +1349,11 @@ fn ui(f: &mut Frame, app: &App) {
         InputMode::Command => {
             let input_block = Paragraph::new(format!(":{}", app.command_input))
                 .style(Style::default().fg(Color::Cyan));
+            f.render_widget(input_block, bottom_bar_area);
+        }
+        InputMode::ConfirmDelete => {
+            let input_block = Paragraph::new(format!("{}", app.command_input))
+                .style(Style::default().fg(Color::Red));
             f.render_widget(input_block, bottom_bar_area);
         }
         InputMode::Polling => {
