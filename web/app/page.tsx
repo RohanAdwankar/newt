@@ -1131,7 +1131,14 @@ export default function App() {
             <div 
                 className="p-1 hover:bg-bg-tertiary cursor-pointer text-sm text-red-500"
                 onClick={() => {
-                    deleteFile();
+                    const localCount = localFiles.length;
+                    const computerStartIndex = localCount + 1;
+                    
+                    if (fileContextMenu.index > 0 && fileContextMenu.index <= localCount) {
+                        deleteFile(localFiles[fileContextMenu.index - 1], 'local');
+                    } else if (fileContextMenu.index > computerStartIndex) {
+                        deleteFile(backendFiles[fileContextMenu.index - computerStartIndex - 1], 'backend');
+                    }
                     setFileContextMenu(null);
                 }}
             >
