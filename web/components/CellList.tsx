@@ -15,6 +15,10 @@ import {
 } from '@dnd-kit/sortable';
 import { SortableCell } from './SortableCell';
 
+// Remove prismjs imports
+// import { highlight, languages } from 'prismjs';
+// ...
+
 export type CellType = 'rust' | 'python' | 'javascript' | 'typescript' | 'c' | 'cpp' | 'go' | 'shell';
 
 export interface Cell {
@@ -42,6 +46,8 @@ interface CellListProps {
   onEditCell: (index: number) => void;
   onReorder: (oldIndex: number, newIndex: number) => void;
   fullscreenCellId: string | null;
+  vimMode: boolean;
+  theme: string;
 }
 
 export const CellList: React.FC<CellListProps> = ({ 
@@ -58,7 +64,9 @@ export const CellList: React.FC<CellListProps> = ({
   onAddCell,
   onEditCell,
   onReorder,
-  fullscreenCellId
+  fullscreenCellId,
+  vimMode,
+  theme
 }) => {
   const listRef = useRef<HTMLDivElement>(null);
   const [isDragging, setIsDragging] = useState(false);
@@ -133,6 +141,8 @@ export const CellList: React.FC<CellListProps> = ({
                     onSelectionMouseDown={() => {}}
                     onSelectionMouseEnter={() => {}}
                     isFullscreen={true}
+                    vimMode={vimMode}
+                    theme={theme}
                   />
             </div>
         )
@@ -173,6 +183,9 @@ export const CellList: React.FC<CellListProps> = ({
                 onEditCell={onEditCell}
                 onSelectionMouseDown={handleMouseDown}
                 onSelectionMouseEnter={handleMouseEnter}
+                vimMode={vimMode}
+                theme={theme}
+                isFullscreen={cell.id === fullscreenCellId}
               />
             );
           })}

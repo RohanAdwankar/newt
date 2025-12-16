@@ -294,6 +294,18 @@ export default function App() {
             e.preventDefault(); // Prevent scrolling
             if (showSidebar) setFocus('sidebar');
         } else if (e.key === 'Enter') {
+            if (e.shiftKey) {
+                if (cells.length > 0) runCell(primaryIndex);
+                return;
+            }
+            
+            if (!vimMode) {
+                e.preventDefault();
+                if (cells.length > 0) setInputMode('editing');
+                return;
+            }
+            
+            // Vim mode default Enter behavior (Run)
             if (cells.length > 0) runCell(primaryIndex);
         }
 
@@ -317,6 +329,7 @@ export default function App() {
                 if (showSidebar) setFocus('sidebar');
                 break;
             case 'i':
+                e.preventDefault();
                 if (cells.length > 0) setInputMode('editing');
                 break;
             case 'r':
@@ -990,6 +1003,8 @@ export default function App() {
             onEditCell={() => setInputMode('editing')}
             onReorder={handleReorder}
             fullscreenCellId={fullscreenCellId}
+            vimMode={vimMode}
+            theme={theme}
         />
       </div>
       
