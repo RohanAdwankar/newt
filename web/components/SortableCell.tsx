@@ -105,7 +105,7 @@ export const SortableCell: React.FC<SortableCellProps> = ({
 
   const getExtensions = () => {
     const exts = [EditorView.lineWrapping];
-    if (vimMode) exts.push(vim());
+    if (vimMode && editing && isSelected) exts.push(vim());
     
     switch (cell.type) {
         case 'python': exts.push(python()); break;
@@ -119,7 +119,7 @@ export const SortableCell: React.FC<SortableCellProps> = ({
     }
     
     // Custom keymap to handle Escape in Normal mode to exit editing
-    if (vimMode) {
+    if (vimMode && editing && isSelected) {
         exts.push(EditorView.domEventHandlers({
             keydown: (e, view) => {
                 // @ts-ignore
@@ -249,7 +249,7 @@ export const SortableCell: React.FC<SortableCellProps> = ({
             extensions={getExtensions()}
             onChange={(value) => onContentChange(cell.id, value)}
             theme={theme === 'dark' ? 'dark' : 'light'}
-            editable={editing}
+            editable={editing && isSelected}
             basicSetup={{
                 lineNumbers: false,
                 foldGutter: false,
