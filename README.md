@@ -51,10 +51,11 @@ newts
 | Move Selection Up | `k` | `Arrow Up` | |
 | Focus Sidebar | `h` | `Arrow Left` | |
 | Focus Editor | `l` | `Arrow Right` | From sidebar |
+| Toggle Sidebar | `Space e` | (UI Button) | |
 | **Cell Operations** | | | |
 | Edit Cell | `i` | `Enter` | |
 | Exit Edit Mode | `Esc` | `Esc` | |
-| Run Cell | `Shift+Enter` | `Shift+Enter` | |
+| Run Cell | `Enter` | `Shift+Enter` | |
 | Add Cell Below | `o` | (UI Button) | |
 | Add Cell Above | `O` | - | |
 | Delete Cell | `d` | - | |
@@ -62,53 +63,67 @@ newts
 | Paste Cell Below | `p` | - | |
 | Paste Cell Above | `P` | - | |
 | Toggle Fullscreen | `f` | (UI Button) | |
+| Polling Mode | `r` | - | Set auto-run interval |
+| **Sidebar Operations** | | | |
+| Rename File | `r` | - | |
+| Copy File | `y` | - | |
+| Paste File | `p` | - | |
 | **Commands** | | | |
-| Open Command Bar | `:` | - | |
+| Run All Cells | `:ra` | Run All Button | |
 | Export Notebook | `:export` | Export Button | |
 | Save Notebook | `:w` | Save Button | |
 | Quit / Close | `:q` | - | |
+| Change Language | `:rust`, `:py`, `:ts`, `:js`, `:cpp`, `:c` | Dropdown | |
 
-| `i` | Edit cell | ✅ | ✅ |
-| `Enter` | Run cell / Open file | ✅ | ✅ |
-| `o` / `O` | Add cell below / above | ✅ | ✅ |
-| `d` | Delete cell | ✅ | ✅ |
-| `y` | Yank (copy) cell / file | ✅ | ✅ |
-| `p` / `P` | Paste below / above | ✅ | ✅ |
-| `r` | Polling mode (cell) / Rename (file) | ✅ | ✅ |
-| `Space e` | Toggle file tree | ✅ | ✅ |
-| `:w` | Save notebook | ✅ | ✅ |
-| `:q` | Quit | ✅ | ❌ |
-| `:ra` | Run all cells | ✅ | ✅ |
-| `:export` | Export to Markdown | ✅ | ✅ |
-| `:rust`, `:py`, etc. | Convert cell language | ✅ | ✅ |
 
 ### Vision
-the goal of newt is to write an alternative approach to using the computer than basic terminals
-so essentially think about how jupyter notebooks had a benefificl impacts to how we approach computing
-for example say the user wants to do a task they would typically do in a terminal
-lets take the example of having an open source project where everytime what you do is start is
+The goal of newt is to explore an alternative approach to using the computer than basic terminals.
+
+The core form factor is a jupyter notebook like experience with vim motions but the goal is to creatively analyze how we interact with terminals and develop a better develop experience. 
+Here is a running list of usecases I am targetting.
+
+#### Declarative Developer Environments
+
+For example say the user wants to do a task they would typically do in a terminal:
+```
 cd frontend
 npm run build
 cd ..
 cargo run 
-so in this case you are doing the same thing consistently 
-however this is simple enough that it is not worth making another script for it
-so alternatively we can implement somethign like jupyter notebooks
-there you have one cell where you can keep:
+```
+So in this case you are typing the same thing consistently.
+However this is simple enough that it is not worth making another script for it
+So when using a newt notebook you can have a cell where you have this: 
+```
 cd ~/foo/frontend
 npm run build
 then one cell where you can keep:
 cd ~/foo
 cargo run
-then you can easily run these cells whenever you want
-and you can run them in different order
-outside of normal terminal commands i also want to be able to creat cells in other languages
-so for example a cell like
-```rust
-const foo: &str = "bar";
-println!("{}", foo);
 ```
-the basic idea is cross language notebooks
-which behave like jupyter notebook in that cells can be run independently of each other
-implement this new terminal system which is capable of running whatever languges are installed on the computer
-write it in rust
+Then perhaps a cell with your editor:
+```
+vi .
+```
+So the full developer environment is declaritively defined in cells.
+
+#### Experimentation
+
+Often times when developing applications my approach is to first mock up the APIs I am working with by writing curls and the jq commands to parse out what I need.
+Then after I figure out how the APIs work I move them into the actual application code.
+This appraoch is very inefficient because then when 2 weeks later I want to understand the APIs I do not have that terminal session. Even if I saved it to a text file it is littered in junk from bad API calls. 
+Also when I parse with jq I replicate the curl which means excessive requests.
+With newt its easy to write the curls or even write snippets of code in other languages and have these notes saved in your developer environment.
+To improve this a new feature could be a tool in the output section for JSON formatting and parsing.
+
+#### Learning New Languages
+
+When I was learning python the fastest way for me to get up to speed was to use the REPL because learning is through repition and having an easy way to incremently and quick fail and correct your understanding of the syntax should improve one's understanding.
+
+#### Cloud
+
+Google Colab is a fantastic service because it enables you to easily swap between runtimes (eg. different GPUs/TPUs). However, for obvious reasons it will not allow using alternative runtimes from different clouds.
+Therefore one of the eventual visions is for each cell to be able to specify the cloud runtime.
+This makes it easy to experiment with different cloud providers and hardware, as well as use the cheapest runtime available to you.
+Currently the possible runtime options are client side (WASM) and server side (local server).
+Adding a cloud option will require a new hosted version of the site with auth and billing which should be a cheaper option for people who need GPU accelerated notebooks.
