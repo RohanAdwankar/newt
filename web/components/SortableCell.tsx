@@ -4,7 +4,7 @@ import { CSS } from '@dnd-kit/utilities';
 import { clsx } from 'clsx';
 import { PollingStatus } from './PollingStatus';
 import { Play, Plus, GripVertical } from 'lucide-react';
-import CodeMirror from '@uiw/react-codemirror';
+import CodeMirror, { ReactCodeMirrorRef } from '@uiw/react-codemirror';
 import { vim } from '@replit/codemirror-vim';
 import { python } from '@codemirror/lang-python';
 import { rust } from '@codemirror/lang-rust';
@@ -39,6 +39,7 @@ interface SortableCellProps {
   onSelectionMouseEnter: (index: number) => void;
   isFullscreen?: boolean;
   vimMode: boolean;
+  theme: string;
 }
 
 export const SortableCell: React.FC<SortableCellProps> = ({
@@ -59,7 +60,8 @@ export const SortableCell: React.FC<SortableCellProps> = ({
   onSelectionMouseDown,
   onSelectionMouseEnter,
   isFullscreen,
-  vimMode
+  vimMode,
+  theme
 }) => {
   const {
     attributes,
@@ -79,7 +81,7 @@ export const SortableCell: React.FC<SortableCellProps> = ({
   };
 
   const activeRef = useRef<HTMLDivElement>(null);
-  // const textareaRef = useRef<HTMLTextAreaElement>(null); // Removed textareaRef
+  const cmRef = useRef<ReactCodeMirrorRef>(null);
 
   useEffect(() => {
     if (isPrimary && activeRef.current) {
@@ -87,8 +89,12 @@ export const SortableCell: React.FC<SortableCellProps> = ({
     }
   }, [isPrimary]);
 
-  // Focus logic handled by CodeMirror autoFocus prop or ref if needed
-  // But we need to handle the case where we enter editing mode
+  // Focus logic
+  useEffect(() => {
+    if (isSelected && editing && cmRef.current?.view) {
+        cmRef.current.view.focus();
+    }
+  }, [isSelected, editing]);
   
   // Merge refs
   const setRefs = (node: HTMLDivElement | null) => {
@@ -171,8 +177,10 @@ export const SortableCell: React.FC<SortableCellProps> = ({
         onShiftClick(e, cell.id);
       }}
       className={clsx(
-        "relative rounded border transition-all group flex flex-col",
-        isSelected && focused ? "border-accent bg-bg-secondary shadow-[0_0_10px_rgba(34,197,94,0.1)]" : "border-border-color bg-bg-primary",
+        "relative rounded border transition-all group flex flex-col outline-none",
+        isSelected && focused 
+            ? (editing ? "border-accent bg-bg-secondary shadow-[0_0_10px_rgba(34,197,94,0.1)]" : "border-text-muted bg-bg-secondary") 
+            : "border-border-color bg-bg-primary",
         isFullscreen && "h-full"
       )}
     >
@@ -235,20 +243,20 @@ export const SortableCell: React.FC<SortableCellProps> = ({
           }}
         >
           <CodeMirror
+            ref={cmRef}
             value={cell.content}
             height={isFullscreen ? "100%" : "auto"}
             extensions={getExtensions()}
             onChange={(value) => onContentChange(cell.id, value)}
-            theme="dark" // or dynamic based on theme prop
+            theme={theme === 'dark' ? 'dark' : 'light'}
             editable={editing}
-            autoFocus={isSelected && editing}
             basicSetup={{
                 lineNumbers: false,
                 foldGutter: false,
                 highlightActiveLine: false,
                 highlightActiveLineGutter: false,
             }}
-            className="cm-editor-custom"
+            className="cm-editor-custom focus:outline-none"
           />
         </div>
 

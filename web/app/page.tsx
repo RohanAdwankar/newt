@@ -991,6 +991,7 @@ export default function App() {
             onReorder={handleReorder}
             fullscreenCellId={fullscreenCellId}
             vimMode={vimMode}
+            theme={theme}
         />
       </div>
       

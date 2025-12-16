@@ -47,6 +47,7 @@ interface CellListProps {
   onReorder: (oldIndex: number, newIndex: number) => void;
   fullscreenCellId: string | null;
   vimMode: boolean;
+  theme: string;
 }
 
 export const CellList: React.FC<CellListProps> = ({ 
@@ -64,7 +65,8 @@ export const CellList: React.FC<CellListProps> = ({
   onEditCell,
   onReorder,
   fullscreenCellId,
-  vimMode
+  vimMode,
+  theme
 }) => {
   const listRef = useRef<HTMLDivElement>(null);
   const [isDragging, setIsDragging] = useState(false);
@@ -140,6 +142,7 @@ export const CellList: React.FC<CellListProps> = ({
                     onSelectionMouseEnter={() => {}}
                     isFullscreen={true}
                     vimMode={vimMode}
+                    theme={theme}
                   />
             </div>
         )
@@ -181,6 +184,8 @@ export const CellList: React.FC<CellListProps> = ({
                 onSelectionMouseDown={handleMouseDown}
                 onSelectionMouseEnter={handleMouseEnter}
                 vimMode={vimMode}
+                theme={theme}
+                isFullscreen={cell.id === fullscreenCellId}
               />
             );
           })}
