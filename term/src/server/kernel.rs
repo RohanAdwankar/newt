@@ -73,12 +73,57 @@ import builtins
 import traceback
 import io
 import contextlib
+import subprocess
+import tempfile
 
 _newt_output_dir = "{}"
 _newt_globals = {{}}
 
 # Ensure we can import modules from current directory
 sys.path.append(os.getcwd())
+
+def _newt_input(prompt=""):
+    # Create a temporary file to store the input
+    with tempfile.NamedTemporaryFile(mode='w+', delete=False) as tf:
+        tf_path = tf.name
+
+    # Create a temporary script to run in the external terminal
+    # This script prompts the user and writes the result to the temp file
+    input_script = f'''
+import os
+try:
+    val = input("{{prompt}}")
+    with open("{{tf_path}}", "w") as f:
+        f.write(val)
+except Exception as e:
+    pass
+'''
+    
+    with tempfile.NamedTemporaryFile(mode='w', suffix='.py', delete=False) as script_tf:
+        script_tf.write(input_script)
+        script_path = script_tf.name
+
+    # Launch external terminal
+    # Using osascript for macOS
+    cmd = f'tell application "Terminal" to do script "python3 {{script_path}}; exit"'
+    subprocess.run(['osascript', '-e', cmd], check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+
+    # Wait for the file to be written (polling)
+    import time
+    start_time = time.time()
+    while time.time() - start_time < 300: # 5 minute timeout
+        try:
+            if os.path.getsize(tf_path) > 0:
+                with open(tf_path, 'r') as f:
+                    result = f.read()
+                os.remove(tf_path)
+                os.remove(script_path)
+                return result
+        except:
+            pass
+        time.sleep(0.1)
+    
+    return ""
 
 def _newt_process_display_data(obj):
     data = {{}}
@@ -147,6 +192,7 @@ def main():
             # We need to inject display into the globals or builtins for this run
             # But builtins.display is global. 
             builtins.display = _display
+            builtins.input = _newt_input
 
             success = True
             with contextlib.redirect_stdout(stdout_capture), contextlib.redirect_stderr(stderr_capture):
