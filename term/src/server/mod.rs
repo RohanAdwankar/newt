@@ -256,10 +256,59 @@ fn execute_javascript(code: String, context: Option<Vec<String>>) -> Json<Comman
 fn execute_typescript(code: String, context: Option<Vec<String>>) -> Json<CommandResponse> {
     // TypeScript still uses the old stateless way for now, or we could transpile and send to NodeKernel
     // For now, keep stateless to ensure it works.
+    
+    // Polyfill for prompt/input
+    let polyfill = r#"
+const fs = require('fs');
+const os = require('os');
+const path = require('path');
+
+function _newt_prompt(promptText) {
+    promptText = promptText || "";
+    const tempDir = os.tmpdir();
+    const reqPath = path.join(tempDir, "newt_web_input_req");
+    const resPath = path.join(tempDir, "newt_web_input_res");
+
+    if (fs.existsSync(resPath)) {
+        try { fs.unlinkSync(resPath); } catch(e) {}
+    }
+
+    fs.writeFileSync(reqPath, promptText);
+
+    const sab = new SharedArrayBuffer(4);
+    const int32 = new Int32Array(sab);
+    const startTime = Date.now();
+    
+    while (!fs.existsSync(resPath)) {
+        if (Date.now() - startTime > 300000) break;
+        try {
+            Atomics.wait(int32, 0, 0, 100);
+        } catch (e) {
+             const start = Date.now();
+             while (Date.now() - start < 100) {}
+        }
+    }
+
+    let result = "";
+    if (fs.existsSync(resPath)) {
+        result = fs.readFileSync(resPath, 'utf8');
+    }
+
+    try {
+        if (fs.existsSync(reqPath)) fs.unlinkSync(reqPath);
+        if (fs.existsSync(resPath)) fs.unlinkSync(resPath);
+    } catch(e) {}
+
+    return result;
+}
+global.prompt = _newt_prompt;
+global.input = _newt_prompt;
+"#;
+
     let full_code = if let Some(ctx) = context {
-        format!("{}\n{}", ctx.join("\n"), code)
+        format!("{}\n{}\n{}", polyfill, ctx.join("\n"), code)
     } else {
-        code
+        format!("{}\n{}", polyfill, code)
     };
 
     let temp_dir = std::env::temp_dir();

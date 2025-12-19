@@ -260,8 +260,8 @@ ${code}
         if (!vm && typeof window !== 'undefined') {
             originalConsoleLog = console.log;
             originalConsoleError = console.error;
-            console.log = (...args) => logs.push(args.join(' '));
-            console.error = (...args) => logs.push(args.join(' '));
+            console.log = (...args) => { logs.push(args.join(' ')); };
+            console.error = (...args) => { logs.push(args.join(' ')); };
         }
 
         try {
