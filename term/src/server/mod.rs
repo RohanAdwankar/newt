@@ -50,7 +50,7 @@ pub async fn execute_command(Json(payload): Json<CommandRequest>) -> Json<Comman
         "javascript" => execute_javascript(payload.command, payload.context),
         "typescript" => execute_typescript(payload.command, payload.context),
         "c" => execute_c(payload.command, payload.context),
-        "cpp" => execute_cpp(payload.command, payload.context),
+        "cpp" => execute_cpp(payload.command, payload.context).await,
         "go" => execute_go(payload.command, payload.context),
         _ => execute_shell(payload.command),
     }
@@ -333,41 +333,50 @@ fn execute_c(code: String, context: Option<Vec<String>>) -> Json<CommandResponse
     }
 }
 
-fn execute_cpp(code: String, context: Option<Vec<String>>) -> Json<CommandResponse> {
-    use crate::server::kernel::{self, Kernel};
-    match kernel::get_or_init_cpp_kernel() {
-        Ok(mut kernel_guard) => {
-            if let Some(kernel) = kernel_guard.as_mut() {
-                match kernel.execute(code, None, context, None) {
-                    Ok(response) => Json(CommandResponse {
-                        stdout: response.stdout,
-                        stderr: response.stderr,
-                        status: response.status,
-                        display_data: response.display_data,
-                    }),
-                    Err(e) => Json(CommandResponse {
+async fn execute_cpp(code: String, context: Option<Vec<String>>) -> Json<CommandResponse> {
+    tokio::task::spawn_blocking(move || {
+        use crate::server::kernel::{self, Kernel};
+        match kernel::get_or_init_cpp_kernel() {
+            Ok(mut kernel_guard) => {
+                if let Some(kernel) = kernel_guard.as_mut() {
+                    match kernel.execute(code, None, context, None) {
+                        Ok(response) => Json(CommandResponse {
+                            stdout: response.stdout,
+                            stderr: response.stderr,
+                            status: response.status,
+                            display_data: response.display_data,
+                        }),
+                        Err(e) => Json(CommandResponse {
+                            stdout: "".to_string(),
+                            stderr: format!("Kernel execution failed: {}", e),
+                            status: Some(1),
+                            display_data: None,
+                        }),
+                    }
+                } else {
+                    Json(CommandResponse {
                         stdout: "".to_string(),
-                        stderr: format!("Kernel execution failed: {}", e),
+                        stderr: "Kernel not initialized".to_string(),
                         status: Some(1),
                         display_data: None,
-                    }),
+                    })
                 }
-            } else {
-                Json(CommandResponse {
-                    stdout: "".to_string(),
-                    stderr: "Kernel not initialized".to_string(),
-                    status: Some(1),
-                    display_data: None,
-                })
             }
+            Err(e) => Json(CommandResponse {
+                stdout: "".to_string(),
+                stderr: format!("Failed to access kernel: {}", e),
+                status: Some(1),
+                display_data: None,
+            }),
         }
-        Err(e) => Json(CommandResponse {
+    }).await.unwrap_or_else(|e| {
+        Json(CommandResponse {
             stdout: "".to_string(),
-            stderr: format!("Failed to access kernel: {}", e),
+            stderr: format!("Task join error: {}", e),
             status: Some(1),
             display_data: None,
-        }),
-    }
+        })
+    })
 }
 
 fn execute_go(code: String, context: Option<Vec<String>>) -> Json<CommandResponse> {

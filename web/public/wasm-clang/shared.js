@@ -228,6 +228,15 @@ class MemFS {
     this.hostMem_.check();
     assert(fd === 0);
     let size = 0;
+    
+    // If stdin buffer is empty, prompt user
+    if (this.stdinStrPos >= this.stdinStr.length) {
+        const input = prompt("Input required:");
+        if (input !== null) {
+            this.stdinStr += input + "\n";
+        }
+    }
+
     for (let i = 0; i < iovs_len; ++i) {
       const buf = this.hostMem_.read32(iovs);
       iovs += 4;
