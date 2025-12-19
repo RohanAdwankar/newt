@@ -91,6 +91,35 @@ export class ClientKernel implements Kernel {
             const channel = new MessageChannel();
             this.clangPort = channel.port1;
             this.clangPort.start();
+
+            // Setup SharedArrayBuffer for synchronous input
+            const sab = new SharedArrayBuffer(1024);
+            const int32 = new Int32Array(sab);
+
+            this.clangPort.addEventListener('message', (e) => {
+                const msg = e.data;
+                if (msg.id === 'input_request') {
+                    const input = prompt(msg.msg || "Input required:");
+                    if (input === null) {
+                        Atomics.store(int32, 1, -1);
+                    } else {
+                        const encoder = new TextEncoder();
+                        const bytes = encoder.encode(input);
+                        const uint8 = new Uint8Array(sab, 8);
+                        const len = Math.min(bytes.length, uint8.length);
+                        uint8.set(bytes.subarray(0, len));
+                        Atomics.store(int32, 1, len);
+                    }
+                    Atomics.store(int32, 0, 0); // Reset status to 0 (IDLE) - wait, worker sets it to 0.
+                    // Worker waits for 1. We should set it to something else?
+                    // Worker: store(0, 1), wait(0, 1).
+                    // Main: store(0, 0), notify(0).
+                    // Worker wakes up, sees 0.
+                    
+                    Atomics.store(int32, 0, 0);
+                    Atomics.notify(int32, 0);
+                }
+            });
             
             // Add a timeout for initialization
             const timeout = setTimeout(() => {
@@ -100,7 +129,7 @@ export class ClientKernel implements Kernel {
             // We assume it's ready if we don't get an error immediately, 
             // but ideally the worker should send a 'ready' message.
             // For now, we just resolve.
-            worker.postMessage({id: 'constructor', data: channel.port2}, [channel.port2]);
+            worker.postMessage({id: 'constructor', data: channel.port2, inputBuffer: sab}, [channel.port2]);
             
             clearTimeout(timeout);
             resolve();

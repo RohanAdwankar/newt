@@ -149,6 +149,7 @@ class MemFS {
   constructor(options) {
     const compileStreaming = options.compileStreaming;
     this.hostWrite = options.hostWrite;
+    this.hostPrompt = options.hostPrompt;
     this.stdinStr = options.stdinStr || "";
     this.stdinStrPos = 0;
     this.memfsFilename = options.memfsFilename;
@@ -231,9 +232,20 @@ class MemFS {
     
     // If stdin buffer is empty, prompt user
     if (this.stdinStrPos >= this.stdinStr.length) {
-        const input = prompt("Input required:");
-        if (input !== null) {
-            this.stdinStr += input + "\n";
+        if (this.hostPrompt) {
+             const input = this.hostPrompt("Input required:");
+             if (input !== null) {
+                 this.stdinStr += input + "\n";
+             }
+        } else if (typeof prompt === 'function') {
+            const input = prompt("Input required:");
+            if (input !== null) {
+                this.stdinStr += input + "\n";
+            }
+        } else {
+             // In worker. We can't prompt.
+             console.error("Cannot prompt for input in Web Worker without SharedArrayBuffer/Atomics");
+             return ESUCCESS; // Return 0 bytes read (EOF)
         }
     }
 
@@ -667,6 +679,7 @@ class API {
     this.compileStreaming = options.compileStreaming;
     this.hostWrite = options.hostWrite;
     this.hostLogWrite = options.hostLogWrite; // Add this
+    this.hostPrompt = options.hostPrompt;
     this.clangFilename = options.clang || 'clang';
     this.lldFilename = options.lld || 'lld';
     this.sysrootFilename = options.sysroot || 'sysroot.tar';
@@ -686,6 +699,7 @@ class API {
     this.memfs = new MemFS({
       compileStreaming : this.compileStreaming,
       hostWrite : this.hostWrite,
+      hostPrompt: this.hostPrompt,
       memfsFilename : options.memfs || 'memfs',
     });
     this.ready = this.memfs.ready.then(

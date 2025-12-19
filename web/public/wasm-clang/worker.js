@@ -20,6 +20,7 @@ let api;
 let port;
 let canvas;
 let ctx2d;
+let inputSab;
 
 const apiOptions = {
   async readBuffer(filename) {
@@ -39,7 +40,32 @@ const apiOptions = {
   },
 
   hostWrite(s) { port.postMessage({id : 'write', data : s}); },
-  hostLogWrite(s) { port.postMessage({id : 'log', data : s}); }
+  hostLogWrite(s) { port.postMessage({id : 'log', data : s}); },
+  hostPrompt(msg) {
+      if (!inputSab) return null;
+      
+      // 1. Request input
+      port.postMessage({id: 'input_request', msg: msg});
+      
+      // 2. Wait
+      const int32 = new Int32Array(inputSab);
+      Atomics.store(int32, 0, 1); // Set status to WAITING (1)
+      Atomics.wait(int32, 0, 1);  // Wait while status is 1
+      
+      // 3. Read
+      const len = Atomics.load(int32, 1);
+      if (len < 0) return null;
+      
+      const strBytes = new Uint8Array(inputSab, 8, len);
+      // Copy to a non-shared buffer to satisfy TextDecoder
+      const copy = new Uint8Array(len);
+      copy.set(strBytes);
+      const str = new TextDecoder().decode(copy);
+      
+      Atomics.store(int32, 0, 0); // Reset to IDLE (0)
+      
+      return str;
+  }
 };
 
 let currentApp = null;
@@ -49,6 +75,9 @@ const onAnyMessage = async event => {
   case 'constructor':
     port = event.data.data;
     port.onmessage = onAnyMessage;
+    if (event.data.inputBuffer) {
+        inputSab = event.data.inputBuffer;
+    }
     api = new API(apiOptions);
     break;
 
