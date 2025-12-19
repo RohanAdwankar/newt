@@ -4,6 +4,26 @@ const API_URL = 'http://127.0.0.1:3000';
 
 export class RemoteKernel implements Kernel {
     async execute(code: string, language: string, context: string[] = []): Promise<ExecutionResult> {
+        // Start polling for input requests
+        const pollInterval = setInterval(async () => {
+            try {
+                const res = await fetch(`${API_URL}/input/status`);
+                if (res.ok) {
+                    const data = await res.json();
+                    if (data.required) {
+                        const input = prompt(data.prompt || "Input required:");
+                        await fetch(`${API_URL}/input/submit`, {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ value: input || "" })
+                        });
+                    }
+                }
+            } catch (e) { 
+                // Ignore polling errors
+            }
+        }, 1000);
+
         try {
             const res = await fetch(`${API_URL}/exec`, {
                 method: 'POST',
@@ -37,6 +57,8 @@ export class RemoteKernel implements Kernel {
                 stderr: `Connection failed: ${e.message}`,
                 status: 1
             };
+        } finally {
+            clearInterval(pollInterval);
         }
     }
 }

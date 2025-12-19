@@ -86,8 +86,40 @@ sys.path.append(os.getcwd())
 
 def _newt_input(prompt=""):
     if _newt_client_type == "web":
-        # TODO: Implement web-based input
-        raise NotImplementedError("Input is not yet supported in Web Server mode. Please use the TUI or Client-side kernel.")
+        # Web mode: File-based coordination
+        import time
+        import os
+        
+        # Define paths (using temp dir)
+        temp_dir = tempfile.gettempdir()
+        req_path = os.path.join(temp_dir, "newt_web_input_req")
+        res_path = os.path.join(temp_dir, "newt_web_input_res")
+        
+        # Write request
+        with open(req_path, "w") as f:
+            f.write(prompt)
+            
+        # Wait for response
+        start_time = time.time()
+        while not os.path.exists(res_path):
+            if time.time() - start_time > 300: # 5 min timeout
+                break
+            time.sleep(0.1)
+            
+        # Read response
+        result = ""
+        if os.path.exists(res_path):
+            with open(res_path, "r") as f:
+                result = f.read()
+            
+        # Cleanup
+        try:
+            if os.path.exists(req_path): os.remove(req_path)
+            if os.path.exists(res_path): os.remove(res_path)
+        except:
+            pass
+            
+        return result
 
     # Create a temporary file to store the input
     with tempfile.NamedTemporaryFile(mode='w+', delete=False) as tf:
