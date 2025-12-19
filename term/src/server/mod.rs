@@ -44,7 +44,7 @@ fn get_app_dir() -> PathBuf {
 }
 
 pub async fn execute_command(Json(payload): Json<CommandRequest>) -> Json<CommandResponse> {
-    println!("Received command request. Language: {:?}, Command length: {}", payload.language, payload.command.len());
+    // Intentionally no stdout logging here: server runs under the TUI.
     let language = payload.language.as_deref().unwrap_or("shell");
 
     let response = match language {
@@ -57,7 +57,6 @@ pub async fn execute_command(Json(payload): Json<CommandRequest>) -> Json<Comman
         "go" => execute_go(payload.command, payload.context).await,
         _ => execute_shell(payload.command).await,
     };
-    println!("Command execution finished. Sending response.");
     response
 }
 
@@ -499,7 +498,6 @@ async fn execute_go(code: String, context: Option<Vec<String>>) -> Json<CommandR
 }
 
 async fn log_requests(req: Request, next: Next) -> Response {
-    println!("Request: {} {}", req.method(), req.uri());
     next.run(req).await
 }
 

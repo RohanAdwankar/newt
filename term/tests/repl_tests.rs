@@ -45,6 +45,7 @@ async fn test_echo_command() {
                     command: "echo hello".to_string(),
                     language: None,
                     context: None,
+                    client_type: None,
                 }).unwrap()))
                 .unwrap(),
         )
@@ -73,6 +74,7 @@ async fn test_cargo_version() {
                     command: "cargo --version".to_string(),
                     language: None,
                     context: None,
+                    client_type: None,
                 }).unwrap()))
                 .unwrap(),
         )
@@ -104,6 +106,7 @@ async fn test_state_persistence_fail() {
                     command: "cd /".to_string(),
                     language: None,
                     context: None,
+                    client_type: None,
                 }).unwrap()))
                 .unwrap(),
         )
@@ -121,6 +124,7 @@ async fn test_state_persistence_fail() {
                     command: "pwd".to_string(),
                     language: None,
                     context: None,
+                    client_type: None,
                 }).unwrap()))
                 .unwrap(),
         )
@@ -150,6 +154,7 @@ async fn test_quoted_arguments_fail() {
                     command: "echo \"hello world\"".to_string(),
                     language: None,
                     context: None,
+                    client_type: None,
                 }).unwrap()))
                 .unwrap(),
         )
@@ -185,6 +190,7 @@ async fn test_rust_snippet_execution() {
                     command: code.to_string(),
                     language: Some("rust".to_string()),
                     context: None,
+                    client_type: None,
                 }).unwrap()))
                 .unwrap(),
         )
@@ -215,6 +221,7 @@ async fn test_python_statefulness() {
                     command: "x = 42".to_string(),
                     language: Some("python".to_string()),
                     context: None,
+                    client_type: None,
                 }).unwrap()))
                 .unwrap(),
         )
@@ -233,6 +240,7 @@ async fn test_python_statefulness() {
                     command: "print(x)".to_string(),
                     language: Some("python".to_string()),
                     context: None,
+                    client_type: None,
                 }).unwrap()))
                 .unwrap(),
         )
@@ -266,6 +274,7 @@ async fn test_rust_statefulness() {
                     command: "println!(\"{}\", x);".to_string(),
                     language: Some("rust".to_string()),
                     context: Some(vec!["let x = 100;".to_string()]),
+                    client_type: None,
                 }).unwrap()))
                 .unwrap(),
         )
@@ -299,6 +308,7 @@ async fn test_c_statefulness() {
                     command: "int main() { printf(\"%d\", x); return 0; }".to_string(),
                     language: Some("c".to_string()),
                     context: Some(vec!["#include <stdio.h>\nint x = 55;".to_string()]),
+                    client_type: None,
                 }).unwrap()))
                 .unwrap(),
         )
@@ -329,6 +339,7 @@ async fn test_rust_mixed_context() {
                     command: "println!(\"hi\");".to_string(),
                     language: Some("rust".to_string()),
                     context: Some(vec!["fn main() { println!(\"Hello, world!\"); }".to_string()]),
+                    client_type: None,
                 }).unwrap()))
                 .unwrap(),
         )
@@ -350,6 +361,7 @@ async fn test_rust_mixed_context() {
                     command: "println!(\"curr\");".to_string(),
                     language: Some("rust".to_string()),
                     context: Some(vec!["println!(\"prev\");".to_string()]),
+                    client_type: None,
                 }).unwrap()))
                 .unwrap(),
         )
@@ -378,6 +390,7 @@ async fn test_rust_comment_main() {
                     command: "println!(\"hi\");".to_string(),
                     language: Some("rust".to_string()),
                     context: Some(vec!["// fn main".to_string()]),
+                    client_type: None,
                 }).unwrap()))
                 .unwrap(),
         )
@@ -409,6 +422,7 @@ plt.show()
                     command: code.to_string(),
                     language: Some("python".to_string()),
                     context: None,
+                    client_type: None,
                 }).unwrap()))
                 .unwrap(),
         )
@@ -470,6 +484,7 @@ display(MyJSON())
                     command: code.to_string(),
                     language: Some("python".to_string()),
                     context: None,
+                    client_type: None,
                 }).unwrap()))
                 .unwrap(),
         )

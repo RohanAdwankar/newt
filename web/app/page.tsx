@@ -550,7 +550,7 @@ export default function App() {
         if (command === 'wq') {
             await saveNotebook();
         }
-    } else if (['rust', 'cpp', 'c', 'py', 'ts', 'js', 'md', 'markdown'].includes(command)) {
+    } else if (['rust', 'cpp', 'c', 'py', 'ts', 'js', 'md', 'markdown', 'sh', 'shell'].includes(command)) {
         const langMap: Record<string, CellType> = {
             'rust': 'rust',
             'cpp': 'cpp',
@@ -559,7 +559,9 @@ export default function App() {
             'ts': 'typescript',
             'js': 'javascript',
             'md': 'markdown',
-            'markdown': 'markdown'
+            'markdown': 'markdown',
+            'sh': 'shell',
+            'shell': 'shell'
         };
         const newType = langMap[command];
         if (newType) {

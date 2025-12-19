@@ -283,7 +283,8 @@ if __name__ == "__main__":
 
         cmd.stdin(Stdio::piped());
         cmd.stdout(Stdio::piped());
-        cmd.stderr(Stdio::inherit()); // Let stderr go to console for debugging the kernel itself
+        // Avoid leaking resolver/debug output into the TUI while the server is running.
+        cmd.stderr(Stdio::null());
 
         let mut child = cmd.spawn().map_err(|e| format!("Failed to spawn python kernel: {}", e))?;
 

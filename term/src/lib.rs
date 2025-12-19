@@ -1088,6 +1088,14 @@ async fn run_app<B: Backend + std::io::Write>(terminal: &mut Terminal<B>, app: &
                                     }
                                     app.input_mode = InputMode::Normal;
                                 }
+                                "sh" | "shell" => {
+                                    if let Some(i) = app.list_state.selected() {
+                                        if let Some(cell) = app.cells.get_mut(i / 2) {
+                                            cell.cell_type = CellType::Shell;
+                                        }
+                                    }
+                                    app.input_mode = InputMode::Normal;
+                                }
                                 _ => {
                                     app.input_mode = InputMode::Normal;
                                 }

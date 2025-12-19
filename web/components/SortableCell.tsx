@@ -236,7 +236,8 @@ export const SortableCell: React.FC<SortableCellProps> = ({
         {cell.type === 'markdown' && !(isSelected && editing) ? (
           <div
             className={clsx(
-              "prose max-w-none text-text-primary border rounded overflow-hidden p-3",
+              "prose prose-sm max-w-none text-text-primary border rounded overflow-hidden p-3",
+              "prose-p:my-2 prose-headings:my-2 prose-ul:my-2 prose-ol:my-2 prose-li:my-1",
               "dark:prose-invert",
               isFullscreen ? "flex-1 overflow-y-auto" : "",
               isSelected ? "border-accent/40" : "border-transparent"
@@ -298,14 +299,27 @@ export const SortableCell: React.FC<SortableCellProps> = ({
             )}
 
             {cell.display_data && cell.display_data.map((data, i) => (
-              <div key={i} className="bg-white p-2 rounded overflow-x-auto mb-2">
-                {data.data['image/png'] && (
-                  <img src={`data:image/png;base64,${data.data['image/png']}`} alt="Plot" />
-                )}
-                {data.data['image/svg+xml'] && (
-                  <div dangerouslySetInnerHTML={{ __html: data.data['image/svg+xml'] }} />
-                )}
-              </div>
+              (() => {
+                const hasPng = !!data?.data?.['image/png'];
+                const hasSvg = !!data?.data?.['image/svg+xml'];
+                const hasHtml = !!data?.data?.['text/html'];
+
+                if (!hasPng && !hasSvg && !hasHtml) return null;
+
+                return (
+                  <div key={i} className="bg-white p-2 rounded overflow-x-auto mb-2">
+                    {hasPng && (
+                      <img src={`data:image/png;base64,${data.data['image/png']}`} alt="Plot" />
+                    )}
+                    {hasSvg && (
+                      <div dangerouslySetInnerHTML={{ __html: data.data['image/svg+xml'] }} />
+                    )}
+                    {hasHtml && (
+                      <div dangerouslySetInnerHTML={{ __html: data.data['text/html'] }} />
+                    )}
+                  </div>
+                );
+              })()
             ))}
           </div>
         )}
