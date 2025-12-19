@@ -1490,29 +1490,44 @@ fn ui(f: &mut Frame, app: &App) {
             "".to_string()
         };
 
-        let content = if cell.content.is_empty() {
-            "(empty)"
-        } else {
-            &cell.content
-        };
-
         let style = if Some(i * 2) == app.list_state.selected() && app.focus == Focus::Editor {
             Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)
         } else {
             Style::default()
         };
 
+        let header_str = format!("[{}]{}", header, countdown);
+        let width = editor_area.width as usize;
+        let padding_len = width.saturating_sub(3 + header_str.len()).saturating_sub(2);
+        let padding = " ".repeat(padding_len);
+
         let lines = if cell.cell_type == CellType::Markdown {
              let is_editing_this = app.input_mode == InputMode::Editing && app.list_state.selected() == Some(i * 2);
              
              if is_editing_this {
-                 vec![
-                    Line::from(Span::styled(format!("[{}] {}{}", header, cell.id, countdown), style)),
-                    Line::from(format!("In: {}", content)),
-                 ]
+                 let mut lines = vec![
+                    Line::from(vec![
+                        Span::styled("In:", style),
+                        Span::raw(padding.clone()),
+                        Span::styled(header_str.clone(), style),
+                    ])
+                 ];
+                 if cell.content.is_empty() {
+                     lines.push(Line::from("     (empty)"));
+                 } else {
+                     for line in cell.content.lines() {
+                         lines.push(Line::from(format!("     {}", line)));
+                     }
+                 }
+                 lines
              } else {
+                 let preview_padding_len = width.saturating_sub(header_str.len()).saturating_sub(2);
+                 let preview_padding = " ".repeat(preview_padding_len);
                  let mut preview_lines = vec![
-                    Line::from(Span::styled(format!("[{}] {}{}", header, cell.id, countdown), style)),
+                    Line::from(vec![
+                        Span::raw(preview_padding),
+                        Span::styled(header_str.clone(), style),
+                    ])
                  ];
                  if cell.content.is_empty() {
                      preview_lines.push(Line::from("(empty)"));
@@ -1534,10 +1549,21 @@ fn ui(f: &mut Frame, app: &App) {
                  preview_lines
              }
         } else {
-             vec![
-                Line::from(Span::styled(format!("[{}] {}{}", header, cell.id, countdown), style)),
-                Line::from(format!("In: {}", content)),
-            ]
+             let mut lines = vec![
+                Line::from(vec![
+                    Span::styled("In:", style),
+                    Span::raw(padding),
+                    Span::styled(header_str, style),
+                ])
+             ];
+             if cell.content.is_empty() {
+                 lines.push(Line::from("     (empty)"));
+             } else {
+                 for line in cell.content.lines() {
+                     lines.push(Line::from(format!("     {}", line)));
+                 }
+             }
+             lines
         };
         list_items.push(ListItem::new(lines));
 
@@ -1553,10 +1579,11 @@ fn ui(f: &mut Frame, app: &App) {
             if !cell.output.is_empty() {
                 output_lines.push(Line::from(Span::styled("Out:", output_style)));
                 for line in cell.output.lines() {
-                    output_lines.push(Line::from(format!("  {}", line)));
+                    output_lines.push(Line::from(format!("     {}", line)));
                 }
             } else {
-                 output_lines.push(Line::from(Span::styled("Out: (empty)", output_style)));
+                 output_lines.push(Line::from(Span::styled("Out:", output_style)));
+                 output_lines.push(Line::from("     (empty)"));
             }
         }
         output_lines.push(Line::from("")); // Spacer
