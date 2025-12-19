@@ -601,6 +601,9 @@ export default function App() {
             return;
         }
         path = name;
+        if (!path.endsWith('.newt')) {
+            path += '.newt';
+        }
         setFilePath(path);
     }
     
@@ -814,7 +817,10 @@ export default function App() {
   const handleRename = async () => {
     const localCount = localFiles.length;
     const computerStartIndex = localCount + 1;
-    const newPath = renameInput;
+    let newPath = renameInput;
+    if (!newPath.endsWith('.newt')) {
+        newPath += '.newt';
+    }
 
     if (selectedFileIndex > 0 && selectedFileIndex <= localCount) {
         const oldPath = localFiles[selectedFileIndex - 1];
