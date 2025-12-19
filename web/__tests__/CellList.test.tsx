@@ -32,8 +32,8 @@ describe('CellList', () => {
       />
     );
 
-    expect(screen.getByText('print("hello")')).toBeInTheDocument();
-    expect(screen.getByText('fn main() {}')).toBeInTheDocument();
+    expect(screen.getByText((_, element) => element?.textContent === 'print("hello")' && element?.classList.contains('cm-line'))).toBeInTheDocument();
+    expect(screen.getByText((_, element) => element?.textContent === 'fn main() {}' && element?.classList.contains('cm-line'))).toBeInTheDocument();
   });
 
   it('calls onCellSelect when clicked', () => {
@@ -56,7 +56,7 @@ describe('CellList', () => {
     );
 
     // Click on the second cell's content (pre tag)
-    fireEvent.click(screen.getByText('fn main() {}'));
+    fireEvent.click(screen.getByText((_, element) => element?.textContent === 'fn main() {}' && element?.classList.contains('cm-line')));
     expect(onCellSelect).toHaveBeenCalledWith(1, false, false);
   });
 
@@ -85,7 +85,7 @@ describe('CellList', () => {
     // Let's try double clicking the text, which should bubble up unless stopped.
     // But we added stopPropagation to the pre's onMouseDown, not onDoubleClick.
     // Wait, we didn't add onDoubleClick to pre, so it should bubble to div.
-    fireEvent.doubleClick(screen.getByText('print("hello")'));
+    fireEvent.doubleClick(screen.getByText((_, element) => element?.textContent === 'print("hello")' && element?.classList.contains('cm-line')));
     expect(onEditCell).toHaveBeenCalledWith(0);
   });
 });
