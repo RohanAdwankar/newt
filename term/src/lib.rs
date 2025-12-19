@@ -138,6 +138,7 @@ pub struct App {
     pub running_cells: std::collections::HashSet<usize>,
     pub popup_input: String,
     pub popup_prompt: String,
+    pub overwrite_path: Option<PathBuf>,
 }
 
 #[derive(PartialEq)]
@@ -154,6 +155,7 @@ pub enum InputMode {
     Renaming,
     Polling,
     ConfirmDelete,
+    ConfirmOverwrite,
     InputPopup,
 }
 
@@ -181,6 +183,7 @@ impl App {
             running_cells: std::collections::HashSet::new(),
             popup_input: String::new(),
             popup_prompt: String::new(),
+            overwrite_path: None,
         };
 
         // Always refresh file list for sidebar
@@ -287,7 +290,12 @@ impl App {
 
     fn save_notebook(&mut self, filename: Option<&str>) -> io::Result<()> {
         let path = if let Some(name) = filename {
-             PathBuf::from(name)
+             let p = PathBuf::from(name);
+             if p.is_absolute() {
+                 p
+             } else {
+                 get_app_dir().join(name)
+             }
         } else if let Some(ref p) = self.file_path {
              p.clone()
         } else {
@@ -957,9 +965,56 @@ async fn run_app<B: Backend + std::io::Write>(terminal: &mut Terminal<B>, app: &
                             }
                         }
                     }
+                    InputMode::ConfirmOverwrite => match key.code {
+                        KeyCode::Char('y') | KeyCode::Char('Y') => {
+                            if let Some(path) = app.overwrite_path.clone() {
+                                let path_str = path.to_string_lossy().to_string();
+                                app.save_notebook(Some(&path_str))?;
+                                app.status_message = Some(format!("Saved to {}", path.display()));
+                                app.refresh_file_list();
+                            }
+                            app.input_mode = InputMode::Normal;
+                            app.command_input.clear();
+                            app.overwrite_path = None;
+                        }
+                        _ => {
+                            app.status_message = Some("Save cancelled".to_string());
+                            app.input_mode = InputMode::Normal;
+                            app.command_input.clear();
+                            app.overwrite_path = None;
+                        }
+                    },
                     InputMode::Command => match key.code {
                         KeyCode::Enter => {
-                            match app.command_input.as_str() {
+                            let cmd = app.command_input.clone();
+                            if cmd.starts_with("w ") {
+                                let filename = cmd[2..].trim();
+                                if !filename.is_empty() {
+                                    let p = PathBuf::from(filename);
+                                    let path = if p.is_absolute() {
+                                        p
+                                    } else {
+                                        get_app_dir().join(filename)
+                                    };
+
+                                    if path.exists() {
+                                        app.overwrite_path = Some(path.clone());
+                                        app.input_mode = InputMode::ConfirmOverwrite;
+                                        app.command_input = format!("Overwrite {}? y/N: ", path.display());
+                                    } else {
+                                        // Pass the full path string to save_notebook
+                                        let path_str = path.to_string_lossy().to_string();
+                                        app.save_notebook(Some(&path_str))?;
+                                        app.input_mode = InputMode::Normal;
+                                        app.refresh_file_list();
+                                        app.command_input.clear();
+                                    }
+                                } else {
+                                    app.input_mode = InputMode::Normal;
+                                    app.command_input.clear();
+                                }
+                            } else {
+                                match app.command_input.as_str() {
                                 "q" => return Ok(()),
                                 "w" => {
                                     app.save_notebook(None)?;
@@ -1110,6 +1165,7 @@ async fn run_app<B: Backend + std::io::Write>(terminal: &mut Terminal<B>, app: &
                                 }
                             }
                             app.command_input.clear();
+                            }
                         }
                         KeyCode::Char(c) => {
                             app.command_input.push(c);
@@ -1629,7 +1685,7 @@ fn ui(f: &mut Frame, app: &App) {
                 .style(Style::default().fg(Color::Cyan));
             f.render_widget(input_block, bottom_bar_area);
         }
-        InputMode::ConfirmDelete => {
+        InputMode::ConfirmDelete | InputMode::ConfirmOverwrite => {
             let input_block = Paragraph::new(format!("{}", app.command_input))
                 .style(Style::default().fg(Color::Red));
             f.render_widget(input_block, bottom_bar_area);

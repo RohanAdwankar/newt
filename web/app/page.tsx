@@ -583,7 +583,19 @@ export default function App() {
     let path = (typeof pathOverride === 'string' ? pathOverride : undefined) || filePath;
     
     if (!path) {
-        const name = window.prompt("Enter notebook name:", "notebook.newt");
+        // Generate default name
+        let defaultName = "notebook.newt";
+        const existingFiles = fileOrigin === 'local' ? localFiles : backendFiles;
+        
+        if (existingFiles.includes(defaultName)) {
+            let counter = 1;
+            while (existingFiles.includes(`notebook${counter}.newt`)) {
+                counter++;
+            }
+            defaultName = `notebook${counter}.newt`;
+        }
+
+        const name = window.prompt("Enter notebook name:", defaultName);
         if (!name) {
             setStatusMessage("Save cancelled");
             return;
