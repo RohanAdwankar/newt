@@ -13,6 +13,17 @@ use tower_http::cors::CorsLayer;
 
 use crate::{CommandRequest, CommandResponse, CellType, Notebook, ExportResponse};
 
+#[derive(Serialize, Deserialize)]
+pub struct InputStatusResponse {
+    pub required: bool,
+    pub prompt: String,
+}
+
+#[derive(Serialize, Deserialize)]
+pub struct InputSubmitRequest {
+    pub value: String,
+}
+
 //TODO: need a better way for newt cloud to operate with file system than this lol. i think the
 //right approach is to in core-api it should save which directory it is started from and then
 //whenever either of the frontends try to connect with it then it will use that as the base dir.
@@ -35,7 +46,7 @@ pub async fn execute_command(Json(payload): Json<CommandRequest>) -> Json<Comman
 
     match language {
         "rust" => execute_rust(payload.command, payload.context),
-        "python" => execute_python(payload.command, payload.context),
+        "python" => execute_python(payload.command, payload.context, payload.client_type).await,
         "javascript" => execute_javascript(payload.command, payload.context),
         "typescript" => execute_typescript(payload.command, payload.context),
         "c" => execute_c(payload.command, payload.context),
@@ -116,7 +127,7 @@ fn execute_rust(code: String, context: Option<Vec<String>>) -> Json<CommandRespo
     match kernel::get_or_init_rust_kernel() {
         Ok(mut kernel_guard) => {
             if let Some(kernel) = kernel_guard.as_mut() {
-                match kernel.execute(code, None, context) {
+                match kernel.execute(code, None, context, None) {
                     Ok(response) => Json(CommandResponse {
                         stdout: response.stdout,
                         stderr: response.stderr,
@@ -150,48 +161,57 @@ fn execute_rust(code: String, context: Option<Vec<String>>) -> Json<CommandRespo
 
 
 
-fn execute_python(code: String, context: Option<Vec<String>>) -> Json<CommandResponse> {
-    use crate::server::kernel::{self, Kernel};
-    // Try to use persistent kernel
-    match kernel::get_or_init_python_kernel() {
-        Ok(mut kernel_guard) => {
-            if let Some(kernel) = kernel_guard.as_mut() {
-                match kernel.execute(code, None, context) {
-                    Ok(response) => {
-                        return Json(CommandResponse {
-                            stdout: response.stdout,
-                            stderr: response.stderr,
-                            status: response.status,
-                            display_data: response.display_data,
-                        });
+async fn execute_python(code: String, context: Option<Vec<String>>, client_type: Option<String>) -> Json<CommandResponse> {
+    tokio::task::spawn_blocking(move || {
+        use crate::server::kernel::{self, Kernel};
+        // Try to use persistent kernel
+        match kernel::get_or_init_python_kernel() {
+            Ok(mut kernel_guard) => {
+                if let Some(kernel) = kernel_guard.as_mut() {
+                    match kernel.execute(code, None, context, client_type) {
+                        Ok(response) => {
+                            return Json(CommandResponse {
+                                stdout: response.stdout,
+                                stderr: response.stderr,
+                                status: response.status,
+                                display_data: response.display_data,
+                            });
+                        }
+                        Err(e) => {
+                            return Json(CommandResponse {
+                                stdout: "".to_string(),
+                                stderr: format!("Kernel execution failed: {}", e),
+                                status: Some(1),
+                                display_data: None,
+                            });
+                        }
                     }
-                    Err(e) => {
-                        return Json(CommandResponse {
-                            stdout: "".to_string(),
-                            stderr: format!("Kernel execution failed: {}", e),
-                            status: Some(1),
-                            display_data: None,
-                        });
-                    }
+                } else {
+                    return Json(CommandResponse {
+                        stdout: "".to_string(),
+                        stderr: "Kernel not initialized".to_string(),
+                        status: Some(1),
+                        display_data: None,
+                    });
                 }
-            } else {
+            }
+            Err(e) => {
                 return Json(CommandResponse {
                     stdout: "".to_string(),
-                    stderr: "Kernel not initialized".to_string(),
+                    stderr: format!("Failed to access kernel: {}", e),
                     status: Some(1),
                     display_data: None,
                 });
             }
         }
-        Err(e) => {
-            return Json(CommandResponse {
-                stdout: "".to_string(),
-                stderr: format!("Failed to access kernel: {}", e),
-                status: Some(1),
-                display_data: None,
-            });
-        }
-    }
+    }).await.unwrap_or_else(|e| {
+        Json(CommandResponse {
+            stdout: "".to_string(),
+            stderr: format!("Task join error: {}", e),
+            status: Some(1),
+            display_data: None,
+        })
+    })
 }
 
 
@@ -201,7 +221,7 @@ fn execute_javascript(code: String, context: Option<Vec<String>>) -> Json<Comman
     match kernel::get_or_init_node_kernel() {
         Ok(mut kernel_guard) => {
             if let Some(kernel) = kernel_guard.as_mut() {
-                match kernel.execute(code, None, context) {
+                match kernel.execute(code, None, context, None) {
                     Ok(response) => Json(CommandResponse {
                         stdout: response.stdout,
                         stderr: response.stderr,
@@ -281,7 +301,7 @@ fn execute_c(code: String, context: Option<Vec<String>>) -> Json<CommandResponse
     match kernel::get_or_init_c_kernel() {
         Ok(mut kernel_guard) => {
             if let Some(kernel) = kernel_guard.as_mut() {
-                match kernel.execute(code, None, context) {
+                match kernel.execute(code, None, context, None) {
                     Ok(response) => Json(CommandResponse {
                         stdout: response.stdout,
                         stderr: response.stderr,
@@ -318,7 +338,7 @@ fn execute_cpp(code: String, context: Option<Vec<String>>) -> Json<CommandRespon
     match kernel::get_or_init_cpp_kernel() {
         Ok(mut kernel_guard) => {
             if let Some(kernel) = kernel_guard.as_mut() {
-                match kernel.execute(code, None, context) {
+                match kernel.execute(code, None, context, None) {
                     Ok(response) => Json(CommandResponse {
                         stdout: response.stdout,
                         stderr: response.stderr,
@@ -355,7 +375,7 @@ fn execute_go(code: String, context: Option<Vec<String>>) -> Json<CommandRespons
     match kernel::get_or_init_go_kernel() {
         Ok(mut kernel_guard) => {
             if let Some(kernel) = kernel_guard.as_mut() {
-                match kernel.execute(code, None, context) {
+                match kernel.execute(code, None, context, None) {
                     Ok(response) => Json(CommandResponse {
                         stdout: response.stdout,
                         stderr: response.stderr,
@@ -398,7 +418,30 @@ pub fn app() -> Router {
         .route("/files/copy", post(copy_file))
         .route("/files/delete", post(delete_file))
         .route("/config", get(get_config).post(update_config))
+        .route("/input/status", get(check_input_status))
+        .route("/input/submit", post(submit_input))
         .layer(CorsLayer::permissive())
+}
+
+async fn check_input_status() -> Json<InputStatusResponse> {
+    let temp_dir = std::env::temp_dir();
+    let req_path = temp_dir.join("newt_web_input_req");
+    let res_path = temp_dir.join("newt_web_input_res");
+    
+    // If response already exists, we are waiting for kernel to pick it up, so don't prompt again
+    if req_path.exists() && !res_path.exists() {
+        let prompt = std::fs::read_to_string(req_path).unwrap_or_default();
+        Json(InputStatusResponse { required: true, prompt })
+    } else {
+        Json(InputStatusResponse { required: false, prompt: String::new() })
+    }
+}
+
+async fn submit_input(Json(payload): Json<InputSubmitRequest>) -> Json<String> {
+    let temp_dir = std::env::temp_dir();
+    let res_path = temp_dir.join("newt_web_input_res");
+    std::fs::write(res_path, payload.value).unwrap_or_default();
+    Json("OK".to_string())
 }
 
 pub async fn run_server() {

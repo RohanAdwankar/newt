@@ -16,10 +16,11 @@ pub struct KernelResponse {
 struct KernelRequest {
     code: String,
     language: Option<String>,
+    client_type: Option<String>,
 }
 
 pub trait Kernel: Send + Sync {
-    fn execute(&mut self, code: String, language: Option<String>, context: Option<Vec<String>>) -> Result<KernelResponse, String>;
+    fn execute(&mut self, code: String, language: Option<String>, context: Option<Vec<String>>, client_type: Option<String>) -> Result<KernelResponse, String>;
 }
 
 pub struct PythonKernel {
@@ -30,8 +31,8 @@ pub struct PythonKernel {
 }
 
 impl Kernel for PythonKernel {
-    fn execute(&mut self, code: String, _language: Option<String>, _context: Option<Vec<String>>) -> Result<KernelResponse, String> {
-        let req = KernelRequest { code, language: None };
+    fn execute(&mut self, code: String, _language: Option<String>, _context: Option<Vec<String>>, client_type: Option<String>) -> Result<KernelResponse, String> {
+        let req = KernelRequest { code, language: None, client_type };
         let json_req = serde_json::to_string(&req).map_err(|e| e.to_string())?;
         
         writeln!(self.stdin, "{}", json_req).map_err(|e| e.to_string())?;
@@ -73,12 +74,59 @@ import builtins
 import traceback
 import io
 import contextlib
+import subprocess
+import tempfile
 
 _newt_output_dir = "{}"
 _newt_globals = {{}}
+_newt_client_type = None
 
 # Ensure we can import modules from current directory
 sys.path.append(os.getcwd())
+
+def _newt_input(prompt=""):
+    # File-based coordination for all clients (Web and TUI)
+    import time
+    import os
+    import tempfile
+    
+    # Define paths (using temp dir)
+    temp_dir = tempfile.gettempdir()
+    req_path = os.path.join(temp_dir, "newt_web_input_req")
+    res_path = os.path.join(temp_dir, "newt_web_input_res")
+    
+    # Clean up any stale response file
+    if os.path.exists(res_path):
+        try:
+            os.remove(res_path)
+        except:
+            pass
+
+    # Write request
+    with open(req_path, "w") as f:
+        f.write(prompt)
+        
+    # Wait for response
+    start_time = time.time()
+    while not os.path.exists(res_path):
+        if time.time() - start_time > 300: # 5 min timeout
+            break
+        time.sleep(0.1)
+        
+    # Read response
+    result = ""
+    if os.path.exists(res_path):
+        with open(res_path, "r") as f:
+            result = f.read()
+        
+    # Cleanup
+    try:
+        if os.path.exists(req_path): os.remove(req_path)
+        if os.path.exists(res_path): os.remove(res_path)
+    except:
+        pass
+        
+    return result
 
 def _newt_process_display_data(obj):
     data = {{}}
@@ -133,6 +181,8 @@ def main():
             
             req = json.loads(line)
             code = req.get('code', '')
+            global _newt_client_type
+            _newt_client_type = req.get('client_type')
             
             stdout_capture = io.StringIO()
             stderr_capture = io.StringIO()
@@ -147,6 +197,7 @@ def main():
             # We need to inject display into the globals or builtins for this run
             # But builtins.display is global. 
             builtins.display = _display
+            builtins.input = _newt_input
 
             success = True
             with contextlib.redirect_stdout(stdout_capture), contextlib.redirect_stderr(stderr_capture):
@@ -252,8 +303,8 @@ pub struct NodeKernel {
 }
 
 impl Kernel for NodeKernel {
-    fn execute(&mut self, code: String, language: Option<String>, _context: Option<Vec<String>>) -> Result<KernelResponse, String> {
-        let req = KernelRequest { code, language };
+    fn execute(&mut self, code: String, language: Option<String>, _context: Option<Vec<String>>, client_type: Option<String>) -> Result<KernelResponse, String> {
+        let req = KernelRequest { code, language, client_type };
         let json_req = serde_json::to_string(&req).map_err(|e| e.to_string())?;
         
         writeln!(self.stdin, "{}", json_req).map_err(|e| e.to_string())?;
@@ -408,7 +459,7 @@ pub fn get_or_init_node_kernel() -> Result<std::sync::MutexGuard<'static, Option
 pub struct RustKernel;
 
 impl Kernel for RustKernel {
-    fn execute(&mut self, code: String, _language: Option<String>, context: Option<Vec<String>>) -> Result<KernelResponse, String> {
+    fn execute(&mut self, code: String, _language: Option<String>, context: Option<Vec<String>>, _client_type: Option<String>) -> Result<KernelResponse, String> {
         let mut full_history = context.unwrap_or_default();
         full_history.push(code);
         
@@ -524,7 +575,7 @@ pub fn get_or_init_rust_kernel() -> Result<std::sync::MutexGuard<'static, Option
 pub struct CKernel;
 
 impl Kernel for CKernel {
-    fn execute(&mut self, code: String, _language: Option<String>, context: Option<Vec<String>>) -> Result<KernelResponse, String> {
+    fn execute(&mut self, code: String, _language: Option<String>, context: Option<Vec<String>>, _client_type: Option<String>) -> Result<KernelResponse, String> {
         let mut full_history = context.unwrap_or_default();
         full_history.push(code);
         
@@ -624,7 +675,7 @@ pub fn get_or_init_c_kernel() -> Result<std::sync::MutexGuard<'static, Option<CK
 pub struct CppKernel;
 
 impl Kernel for CppKernel {
-    fn execute(&mut self, code: String, _language: Option<String>, context: Option<Vec<String>>) -> Result<KernelResponse, String> {
+    fn execute(&mut self, code: String, _language: Option<String>, context: Option<Vec<String>>, _client_type: Option<String>) -> Result<KernelResponse, String> {
         let mut full_history = context.unwrap_or_default();
         full_history.push(code);
         
@@ -725,7 +776,7 @@ pub fn get_or_init_cpp_kernel() -> Result<std::sync::MutexGuard<'static, Option<
 pub struct GoKernel;
 
 impl Kernel for GoKernel {
-    fn execute(&mut self, code: String, _language: Option<String>, context: Option<Vec<String>>) -> Result<KernelResponse, String> {
+    fn execute(&mut self, code: String, _language: Option<String>, context: Option<Vec<String>>, _client_type: Option<String>) -> Result<KernelResponse, String> {
         let mut full_history = context.unwrap_or_default();
         full_history.push(code);
         
