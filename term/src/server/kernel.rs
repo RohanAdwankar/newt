@@ -16,10 +16,11 @@ pub struct KernelResponse {
 struct KernelRequest {
     code: String,
     language: Option<String>,
+    client_type: Option<String>,
 }
 
 pub trait Kernel: Send + Sync {
-    fn execute(&mut self, code: String, language: Option<String>, context: Option<Vec<String>>) -> Result<KernelResponse, String>;
+    fn execute(&mut self, code: String, language: Option<String>, context: Option<Vec<String>>, client_type: Option<String>) -> Result<KernelResponse, String>;
 }
 
 pub struct PythonKernel {
@@ -30,8 +31,8 @@ pub struct PythonKernel {
 }
 
 impl Kernel for PythonKernel {
-    fn execute(&mut self, code: String, _language: Option<String>, _context: Option<Vec<String>>) -> Result<KernelResponse, String> {
-        let req = KernelRequest { code, language: None };
+    fn execute(&mut self, code: String, _language: Option<String>, _context: Option<Vec<String>>, client_type: Option<String>) -> Result<KernelResponse, String> {
+        let req = KernelRequest { code, language: None, client_type };
         let json_req = serde_json::to_string(&req).map_err(|e| e.to_string())?;
         
         writeln!(self.stdin, "{}", json_req).map_err(|e| e.to_string())?;
@@ -78,11 +79,16 @@ import tempfile
 
 _newt_output_dir = "{}"
 _newt_globals = {{}}
+_newt_client_type = None
 
 # Ensure we can import modules from current directory
 sys.path.append(os.getcwd())
 
 def _newt_input(prompt=""):
+    if _newt_client_type == "web":
+        # TODO: Implement web-based input
+        raise NotImplementedError("Input is not yet supported in Web Server mode. Please use the TUI or Client-side kernel.")
+
     # Create a temporary file to store the input
     with tempfile.NamedTemporaryFile(mode='w+', delete=False) as tf:
         tf_path = tf.name
@@ -178,6 +184,8 @@ def main():
             
             req = json.loads(line)
             code = req.get('code', '')
+            global _newt_client_type
+            _newt_client_type = req.get('client_type')
             
             stdout_capture = io.StringIO()
             stderr_capture = io.StringIO()
@@ -298,8 +306,8 @@ pub struct NodeKernel {
 }
 
 impl Kernel for NodeKernel {
-    fn execute(&mut self, code: String, language: Option<String>, _context: Option<Vec<String>>) -> Result<KernelResponse, String> {
-        let req = KernelRequest { code, language };
+    fn execute(&mut self, code: String, language: Option<String>, _context: Option<Vec<String>>, client_type: Option<String>) -> Result<KernelResponse, String> {
+        let req = KernelRequest { code, language, client_type };
         let json_req = serde_json::to_string(&req).map_err(|e| e.to_string())?;
         
         writeln!(self.stdin, "{}", json_req).map_err(|e| e.to_string())?;
@@ -454,7 +462,7 @@ pub fn get_or_init_node_kernel() -> Result<std::sync::MutexGuard<'static, Option
 pub struct RustKernel;
 
 impl Kernel for RustKernel {
-    fn execute(&mut self, code: String, _language: Option<String>, context: Option<Vec<String>>) -> Result<KernelResponse, String> {
+    fn execute(&mut self, code: String, _language: Option<String>, context: Option<Vec<String>>, _client_type: Option<String>) -> Result<KernelResponse, String> {
         let mut full_history = context.unwrap_or_default();
         full_history.push(code);
         
@@ -570,7 +578,7 @@ pub fn get_or_init_rust_kernel() -> Result<std::sync::MutexGuard<'static, Option
 pub struct CKernel;
 
 impl Kernel for CKernel {
-    fn execute(&mut self, code: String, _language: Option<String>, context: Option<Vec<String>>) -> Result<KernelResponse, String> {
+    fn execute(&mut self, code: String, _language: Option<String>, context: Option<Vec<String>>, _client_type: Option<String>) -> Result<KernelResponse, String> {
         let mut full_history = context.unwrap_or_default();
         full_history.push(code);
         
@@ -670,7 +678,7 @@ pub fn get_or_init_c_kernel() -> Result<std::sync::MutexGuard<'static, Option<CK
 pub struct CppKernel;
 
 impl Kernel for CppKernel {
-    fn execute(&mut self, code: String, _language: Option<String>, context: Option<Vec<String>>) -> Result<KernelResponse, String> {
+    fn execute(&mut self, code: String, _language: Option<String>, context: Option<Vec<String>>, _client_type: Option<String>) -> Result<KernelResponse, String> {
         let mut full_history = context.unwrap_or_default();
         full_history.push(code);
         
@@ -771,7 +779,7 @@ pub fn get_or_init_cpp_kernel() -> Result<std::sync::MutexGuard<'static, Option<
 pub struct GoKernel;
 
 impl Kernel for GoKernel {
-    fn execute(&mut self, code: String, _language: Option<String>, context: Option<Vec<String>>) -> Result<KernelResponse, String> {
+    fn execute(&mut self, code: String, _language: Option<String>, context: Option<Vec<String>>, _client_type: Option<String>) -> Result<KernelResponse, String> {
         let mut full_history = context.unwrap_or_default();
         full_history.push(code);
         

@@ -11,7 +11,8 @@ export class RemoteKernel implements Kernel {
                 body: JSON.stringify({
                     command: code,
                     language: language,
-                    context: context
+                    context: context,
+                    client_type: "web"
                 })
             });
             

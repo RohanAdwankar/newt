@@ -35,7 +35,7 @@ pub async fn execute_command(Json(payload): Json<CommandRequest>) -> Json<Comman
 
     match language {
         "rust" => execute_rust(payload.command, payload.context),
-        "python" => execute_python(payload.command, payload.context),
+        "python" => execute_python(payload.command, payload.context, payload.client_type),
         "javascript" => execute_javascript(payload.command, payload.context),
         "typescript" => execute_typescript(payload.command, payload.context),
         "c" => execute_c(payload.command, payload.context),
@@ -116,7 +116,7 @@ fn execute_rust(code: String, context: Option<Vec<String>>) -> Json<CommandRespo
     match kernel::get_or_init_rust_kernel() {
         Ok(mut kernel_guard) => {
             if let Some(kernel) = kernel_guard.as_mut() {
-                match kernel.execute(code, None, context) {
+                match kernel.execute(code, None, context, None) {
                     Ok(response) => Json(CommandResponse {
                         stdout: response.stdout,
                         stderr: response.stderr,
@@ -150,13 +150,13 @@ fn execute_rust(code: String, context: Option<Vec<String>>) -> Json<CommandRespo
 
 
 
-fn execute_python(code: String, context: Option<Vec<String>>) -> Json<CommandResponse> {
+fn execute_python(code: String, context: Option<Vec<String>>, client_type: Option<String>) -> Json<CommandResponse> {
     use crate::server::kernel::{self, Kernel};
     // Try to use persistent kernel
     match kernel::get_or_init_python_kernel() {
         Ok(mut kernel_guard) => {
             if let Some(kernel) = kernel_guard.as_mut() {
-                match kernel.execute(code, None, context) {
+                match kernel.execute(code, None, context, client_type) {
                     Ok(response) => {
                         return Json(CommandResponse {
                             stdout: response.stdout,
@@ -201,7 +201,7 @@ fn execute_javascript(code: String, context: Option<Vec<String>>) -> Json<Comman
     match kernel::get_or_init_node_kernel() {
         Ok(mut kernel_guard) => {
             if let Some(kernel) = kernel_guard.as_mut() {
-                match kernel.execute(code, None, context) {
+                match kernel.execute(code, None, context, None) {
                     Ok(response) => Json(CommandResponse {
                         stdout: response.stdout,
                         stderr: response.stderr,
@@ -281,7 +281,7 @@ fn execute_c(code: String, context: Option<Vec<String>>) -> Json<CommandResponse
     match kernel::get_or_init_c_kernel() {
         Ok(mut kernel_guard) => {
             if let Some(kernel) = kernel_guard.as_mut() {
-                match kernel.execute(code, None, context) {
+                match kernel.execute(code, None, context, None) {
                     Ok(response) => Json(CommandResponse {
                         stdout: response.stdout,
                         stderr: response.stderr,
@@ -318,7 +318,7 @@ fn execute_cpp(code: String, context: Option<Vec<String>>) -> Json<CommandRespon
     match kernel::get_or_init_cpp_kernel() {
         Ok(mut kernel_guard) => {
             if let Some(kernel) = kernel_guard.as_mut() {
-                match kernel.execute(code, None, context) {
+                match kernel.execute(code, None, context, None) {
                     Ok(response) => Json(CommandResponse {
                         stdout: response.stdout,
                         stderr: response.stderr,
@@ -355,7 +355,7 @@ fn execute_go(code: String, context: Option<Vec<String>>) -> Json<CommandRespons
     match kernel::get_or_init_go_kernel() {
         Ok(mut kernel_guard) => {
             if let Some(kernel) = kernel_guard.as_mut() {
-                match kernel.execute(code, None, context) {
+                match kernel.execute(code, None, context, None) {
                     Ok(response) => Json(CommandResponse {
                         stdout: response.stdout,
                         stderr: response.stderr,

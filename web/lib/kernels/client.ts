@@ -291,6 +291,9 @@ ${code}
             let stdout = "";
             p.setStdout({ batched: (msg: string) => { stdout += msg + "\n"; } });
             
+            // Handle stdin
+            p.setStdin({ stdin: () => prompt("Input required:") || "" });
+            
             await p.loadPackagesFromImports(code);
             const result = await p.runPythonAsync(code);
             

@@ -38,6 +38,8 @@ pub struct CommandRequest {
     pub language: Option<String>,
     #[serde(default, deserialize_with = "deserialize_context")]
     pub context: Option<Vec<String>>,
+    #[serde(default)]
+    pub client_type: Option<String>,
 }
 
 fn deserialize_context<'de, D>(deserializer: D) -> Result<Option<Vec<String>>, D::Error>
@@ -367,7 +369,7 @@ impl App {
             
             let context_opt = if context.is_empty() { None } else { Some(context) };
 
-            Some(CommandRequest { command: cmd, language: lang, context: context_opt })
+            Some(CommandRequest { command: cmd, language: lang, context: context_opt, client_type: Some("tui".to_string()) })
         } else {
             None
         }
