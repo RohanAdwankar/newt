@@ -721,6 +721,83 @@ impl CppKernel {
         if !final_source.contains("#include <iostream>") {
             final_source = format!("#include <iostream>\n{}", final_source);
         }
+
+        // Inject Newt Input Support
+        let newt_header = r#"
+#include <iostream>
+#include <fstream>
+#include <string>
+#include <thread>
+#include <chrono>
+#include <filesystem>
+#include <streambuf>
+#include <vector>
+#include <cstring>
+
+namespace newt {
+    class NewtStreamBuf : public std::streambuf {
+        char buffer[1024];
+    public:
+        NewtStreamBuf() {
+            setg(buffer, buffer, buffer);
+        }
+
+    protected:
+        int underflow() override {
+            if (gptr() < egptr()) {
+                return traits_type::to_int_type(*gptr());
+            }
+
+            auto temp_dir = std::filesystem::temp_directory_path();
+            auto req_path = temp_dir / "newt_web_input_req";
+            auto res_path = temp_dir / "newt_web_input_res";
+
+            if (std::filesystem::exists(res_path)) {
+                std::filesystem::remove(res_path);
+            }
+
+            // Flush cout before waiting for input so user sees prompt
+            std::cout.flush();
+
+            {
+                std::ofstream req(req_path);
+                req << ""; 
+            }
+
+            while (!std::filesystem::exists(res_path)) {
+                std::this_thread::sleep_for(std::chrono::milliseconds(100));
+            }
+
+            std::string input_data;
+            {
+                std::ifstream res(res_path);
+                std::getline(res, input_data);
+                input_data += "\n";
+            }
+
+            if (std::filesystem::exists(req_path)) std::filesystem::remove(req_path);
+            if (std::filesystem::exists(res_path)) std::filesystem::remove(res_path);
+
+            size_t len = input_data.length();
+            if (len > sizeof(buffer)) len = sizeof(buffer);
+            std::memcpy(buffer, input_data.c_str(), len);
+            
+            setg(buffer, buffer, buffer + len);
+
+            return traits_type::to_int_type(*gptr());
+        }
+    };
+
+    static NewtStreamBuf newt_buf;
+    struct NewtInitializer {
+        NewtInitializer() {
+            std::cin.rdbuf(&newt_buf);
+        }
+    };
+    static NewtInitializer newt_init;
+}
+"#;
+        final_source = format!("{}\n{}", newt_header, final_source);
         
         final_source
     }
@@ -735,6 +812,7 @@ impl CppKernel {
 
         let compile_output = Command::new("clang++")
             .arg(&file_path)
+            .arg("-std=c++17")
             .arg("-I/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/c++/v1")
             .arg("-o")
             .arg(&bin_path)
