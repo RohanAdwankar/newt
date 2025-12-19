@@ -255,8 +255,11 @@ if __name__ == "__main__":
         // We use "uv run" as in the original code
         let mut cmd = Command::new("uv");
         cmd.arg("run");
-        cmd.arg("--with");
-        cmd.arg("matplotlib");
+        // Skip matplotlib for tests to speed up
+        if std::env::var("NEWT_TEST_MODE").is_err() {
+            cmd.arg("--with");
+            cmd.arg("matplotlib");
+        }
         cmd.arg("python");
         cmd.arg(&script_path);
 
@@ -366,6 +369,8 @@ function input(promptText) {
     const reqPath = path.join(tempDir, "newt_web_input_req");
     const resPath = path.join(tempDir, "newt_web_input_res");
 
+    process.stderr.write(`NodeKernel: input called. Req: ${reqPath}\n`);
+
     // Clean up stale response
     if (fs.existsSync(resPath)) {
         try { fs.unlinkSync(resPath); } catch(e) {}
@@ -373,6 +378,7 @@ function input(promptText) {
 
     // Write request
     fs.writeFileSync(reqPath, promptText);
+    process.stderr.write(`NodeKernel: wrote request\n`);
 
     // Wait for response
     const sab = new SharedArrayBuffer(4);

@@ -518,7 +518,7 @@ async fn run_app<B: Backend + std::io::Write>(terminal: &mut Terminal<B>, app: &
 
         // Check for input requests
         if app.input_mode != InputMode::InputPopup {
-            let client = client.clone();
+            let _client = client.clone();
             // We can't await here easily in the sync loop, so we spawn a check
             // But we need to get the result back to the main thread.
             // Let's use another channel for input requests?
@@ -856,7 +856,7 @@ async fn run_app<B: Backend + std::io::Write>(terminal: &mut Terminal<B>, app: &
                                                             // Write to temp file
                                                             if let Ok(mut file) = tempfile::Builder::new().suffix(".py").tempfile() {
                                                                 if write!(file, "{}", cell.content).is_ok() {
-                                                                    let path = file.path().to_string_lossy().to_string();
+                                                                    let _path = file.path().to_string_lossy().to_string();
                                                                     // Keep file alive by persisting it? tempfile deletes on drop.
                                                                     // We need to persist it or use a non-tempfile.
                                                                     let (_, path) = file.keep().unwrap();
@@ -1314,7 +1314,7 @@ async fn run_app<B: Backend + std::io::Write>(terminal: &mut Terminal<B>, app: &
             }
         }
     }
-    Ok(())
+    // Ok(()) // Unreachable
 }
 
 fn open_editor(content: &str, extension: &str) -> io::Result<String> {

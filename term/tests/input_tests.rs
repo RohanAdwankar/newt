@@ -11,19 +11,23 @@ fn simulate_input(input_str: &str) {
 
     // Wait for request
     let start = std::time::Instant::now();
+    println!("Test: Waiting for request at {:?}", req_path);
     while !req_path.exists() {
         if start.elapsed().as_secs() > 30 {
-            panic!("Timeout waiting for input request");
+            panic!("Timeout waiting for input request at {:?}", req_path);
         }
         thread::sleep(Duration::from_millis(100));
     }
+    println!("Test: Found request");
 
     // Write response
     fs::write(&res_path, input_str).expect("Failed to write response");
+    println!("Test: Wrote response to {:?}", res_path);
 }
 
 #[test]
 fn test_python_input() {
+    unsafe { std::env::set_var("NEWT_TEST_MODE", "1"); }
     let mut kernel = PythonKernel::new().expect("Failed to init kernel");
     
     let code = "x = input('Enter: '); print(f'Got: {x}')".to_string();

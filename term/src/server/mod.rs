@@ -48,7 +48,7 @@ pub async fn execute_command(Json(payload): Json<CommandRequest>) -> Json<Comman
         "rust" => execute_rust(payload.command, payload.context),
         "python" => execute_python(payload.command, payload.context, payload.client_type).await,
         "javascript" => execute_javascript(payload.command, payload.context),
-        "typescript" => execute_typescript(payload.command, payload.context),
+        "typescript" => execute_typescript(payload.command, payload.context).await,
         "c" => execute_c(payload.command, payload.context),
         "cpp" => execute_cpp(payload.command, payload.context).await,
         "go" => execute_go(payload.command, payload.context),
@@ -253,7 +253,7 @@ fn execute_javascript(code: String, context: Option<Vec<String>>) -> Json<Comman
     }
 }
 
-fn execute_typescript(code: String, context: Option<Vec<String>>) -> Json<CommandResponse> {
+async fn execute_typescript(code: String, context: Option<Vec<String>>) -> Json<CommandResponse> {
     // TypeScript still uses the old stateless way for now, or we could transpile and send to NodeKernel
     // For now, keep stateless to ensure it works.
     
@@ -325,7 +325,7 @@ global.input = _newt_prompt;
     }
 
     // Try npx tsx first
-    let output = Command::new("npx").arg("tsx").arg(&file_path).output();
+    let output = tokio::process::Command::new("npx").arg("tsx").arg(&file_path).output().await;
 
     let _ = std::fs::remove_file(&file_path);
 
