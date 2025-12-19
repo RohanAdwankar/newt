@@ -95,6 +95,13 @@ def _newt_input(prompt=""):
         req_path = os.path.join(temp_dir, "newt_web_input_req")
         res_path = os.path.join(temp_dir, "newt_web_input_res")
         
+        # Clean up any stale response file
+        if os.path.exists(res_path):
+            try:
+                os.remove(res_path)
+            except:
+                pass
+
         # Write request
         with open(req_path, "w") as f:
             f.write(prompt)

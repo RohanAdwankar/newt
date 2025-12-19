@@ -426,8 +426,10 @@ pub fn app() -> Router {
 async fn check_input_status() -> Json<InputStatusResponse> {
     let temp_dir = std::env::temp_dir();
     let req_path = temp_dir.join("newt_web_input_req");
+    let res_path = temp_dir.join("newt_web_input_res");
     
-    if req_path.exists() {
+    // If response already exists, we are waiting for kernel to pick it up, so don't prompt again
+    if req_path.exists() && !res_path.exists() {
         let prompt = std::fs::read_to_string(req_path).unwrap_or_default();
         Json(InputStatusResponse { required: true, prompt })
     } else {
