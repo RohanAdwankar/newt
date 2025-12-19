@@ -1,14 +1,16 @@
 import { Kernel, ExecutionResult } from './types';
 
-const API_URL = 'http://127.0.0.1:3000';
+const API_URL = 'http://127.0.0.1:3030';
 
 export class RemoteKernel implements Kernel {
     async execute(code: string, language: string, context: string[] = []): Promise<ExecutionResult> {
         // Start polling for input requests
-        const pollInterval = setInterval(async () => {
+        let polling = true;
+        const poll = async () => {
+            if (!polling) return;
             try {
                 const res = await fetch(`${API_URL}/input/status`);
-                if (res.ok) {
+                if (res.ok && polling) {
                     const data = await res.json();
                     if (data.required) {
                         const input = prompt(data.prompt || "Input required:");
@@ -22,7 +24,9 @@ export class RemoteKernel implements Kernel {
             } catch (e) { 
                 // Ignore polling errors
             }
-        }, 1000);
+            if (polling) setTimeout(poll, 1000);
+        };
+        poll();
 
         try {
             const res = await fetch(`${API_URL}/exec`, {
@@ -58,7 +62,7 @@ export class RemoteKernel implements Kernel {
                 status: 1
             };
         } finally {
-            clearInterval(pollInterval);
+            polling = false;
         }
     }
 }

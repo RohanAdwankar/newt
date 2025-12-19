@@ -260,8 +260,8 @@ ${code}
         if (!vm && typeof window !== 'undefined') {
             originalConsoleLog = console.log;
             originalConsoleError = console.error;
-            console.log = (...args) => logs.push(args.join(' '));
-            console.error = (...args) => logs.push(args.join(' '));
+            console.log = (...args) => { logs.push(args.join(' ')); };
+            console.error = (...args) => { logs.push(args.join(' ')); };
         }
 
         try {
@@ -271,14 +271,23 @@ ${code}
                 
                 // Initialize context if needed
                 if (!this.context.vmContext) {
-                    this.context.vmContext = vm.createContext({
+                    const sandbox: any = {
                         console: {
                             log: () => {},
                             error: () => {},
                             warn: console.warn,
                             info: console.info
                         }
-                    });
+                    };
+                    
+                    // Inject prompt if available (e.g. in JSDOM)
+                    if (typeof prompt !== 'undefined') {
+                        sandbox.prompt = prompt;
+                    } else if (typeof window !== 'undefined' && (window as any).prompt) {
+                        sandbox.prompt = (window as any).prompt;
+                    }
+
+                    this.context.vmContext = vm.createContext(sandbox);
                 }
                 
                 // Update console methods to capture logs for THIS execution
