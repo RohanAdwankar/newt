@@ -824,7 +824,29 @@ async fn run_app<B: Backend + std::io::Write>(terminal: &mut Terminal<B>, app: &
                                                     }
                                                 }
                                             } else {
-                                                if let Some(req) = app.get_run_request(cell_idx) {
+                                                let mut is_interactive = false;
+                                                let mut cmd_to_run = String::new();
+
+                                                if let Some(cell) = app.cells.get(cell_idx) {
+                                                    if cell.cell_type == CellType::Shell {
+                                                        let cmd = cell.content.trim();
+                                                        if cmd.starts_with("vi") || cmd.starts_with("vim") || cmd.starts_with("nano") {
+                                                            is_interactive = true;
+                                                            cmd_to_run = cell.content.clone();
+                                                        }
+                                                    }
+                                                }
+
+                                                if is_interactive {
+                                                    disable_raw_mode()?;
+                                                    execute!(terminal.backend_mut(), LeaveAlternateScreen)?;
+                                                    
+                                                    let _ = run_interactive(&cmd_to_run);
+                                                    
+                                                    execute!(terminal.backend_mut(), EnterAlternateScreen)?;
+                                                    enable_raw_mode()?;
+                                                    terminal.clear()?;
+                                                } else if let Some(req) = app.get_run_request(cell_idx) {
                                                     let client = client.clone();
                                                     let res = client.post("http://127.0.0.1:3000/exec")
                                                         .json(&req)
@@ -1084,13 +1106,31 @@ async fn run_app<B: Backend + std::io::Write>(terminal: &mut Terminal<B>, app: &
                             } else {
                                 // Run the cell
                                 let input_content = app.input.clone();
+                                let mut is_interactive = false;
+                                let mut cmd_to_run = String::new();
+
                                 if let Some(cell) = app.current_cell_mut() {
                                     if cell.cell_type == CellType::Shell {
                                         cell.content = input_content;
+                                        let cmd = cell.content.trim();
+                                        if cmd.starts_with("vi") || cmd.starts_with("vim") || cmd.starts_with("nano") {
+                                            is_interactive = true;
+                                            cmd_to_run = cell.content.clone();
+                                        }
                                     }
                                 }
                                 
-                                if let Some(i) = app.list_state.selected() {
+                                if is_interactive {
+                                    disable_raw_mode()?;
+                                    execute!(terminal.backend_mut(), LeaveAlternateScreen)?;
+                                    
+                                    let _ = run_interactive(&cmd_to_run);
+                                    
+                                    execute!(terminal.backend_mut(), EnterAlternateScreen)?;
+                                    enable_raw_mode()?;
+                                    terminal.clear()?;
+                                    app.input_mode = InputMode::Normal;
+                                } else if let Some(i) = app.list_state.selected() {
                                     if let Some(req) = app.get_run_request(i) {
                                         let client = client.clone();
                                         let res = client.post("http://127.0.0.1:3000/exec")
@@ -1207,6 +1247,24 @@ fn open_editor(content: &str, extension: &str) -> io::Result<String> {
     
     let new_content = std::fs::read_to_string(&path)?;
     Ok(new_content)
+}
+
+fn run_interactive(command: &str) -> io::Result<()> {
+    let parts: Vec<&str> = command.split_whitespace().collect();
+    if parts.is_empty() {
+        return Ok(());
+    }
+    let program = parts[0];
+    let args = &parts[1..];
+    
+    let status = Command::new(program)
+        .args(args)
+        .status()?;
+        
+    if !status.success() {
+        return Err(io::Error::new(io::ErrorKind::Other, "Command exited with error"));
+    }
+    Ok(())
 }
 
 fn ui(f: &mut Frame, app: &App) {
