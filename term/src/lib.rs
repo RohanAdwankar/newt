@@ -132,6 +132,7 @@ pub struct App {
     pub rename_input: String,
     pub polling_input: String,
     pub file_to_delete: Option<PathBuf>,
+    pub running_cells: std::collections::HashSet<usize>,
 }
 
 #[derive(PartialEq)]
@@ -171,6 +172,7 @@ impl App {
             rename_input: String::new(),
             polling_input: String::new(),
             file_to_delete: None,
+            running_cells: std::collections::HashSet::new(),
         };
 
         // Always refresh file list for sidebar
@@ -458,6 +460,7 @@ pub async fn run() -> Result<(), Box<dyn Error>> {
 
 async fn run_app<B: Backend + std::io::Write>(terminal: &mut Terminal<B>, app: &mut App) -> io::Result<()> {
     let client = reqwest::Client::new();
+    let (tx, mut rx) = tokio::sync::mpsc::channel::<(usize, String)>(32);
 
     loop {
         // Check polling cells
@@ -466,32 +469,44 @@ async fn run_app<B: Backend + std::io::Write>(terminal: &mut Terminal<B>, app: &
         for i in indices_to_run {
             if let Some(req) = app.get_run_request(i) {
                 let client = client.clone();
-                let res = client.post("http://127.0.0.1:3000/exec")
-                    .json(&req)
-                    .send()
-                    .await;
+                let tx = tx.clone();
+                app.running_cells.insert(i);
 
-                match res {
-                    Ok(resp) => {
-                        if let Ok(body) = resp.json::<CommandResponse>().await {
-                            let mut output = format!("{}{}", body.stdout, body.stderr);
-                            if let Some(display_data) = body.display_data {
-                                for data in display_data {
-                                    if let Some(image_path) = data.data.get("image/png").or(data.data.get("image/svg+xml")) {
-                                        if let Some(path_str) = image_path.as_str() {
-                                            output.push_str(&format!("\n[Image: {}]", path_str));
+                tokio::spawn(async move {
+                    let res = client.post("http://127.0.0.1:3000/exec")
+                        .json(&req)
+                        .send()
+                        .await;
+
+                    let output = match res {
+                        Ok(resp) => {
+                            if let Ok(body) = resp.json::<CommandResponse>().await {
+                                let mut output = format!("{}{}", body.stdout, body.stderr);
+                                if let Some(display_data) = body.display_data {
+                                    for data in display_data {
+                                        if let Some(image_path) = data.data.get("image/png").or(data.data.get("image/svg+xml")) {
+                                            if let Some(path_str) = image_path.as_str() {
+                                                output.push_str(&format!("\n[Image: {}]", path_str));
+                                            }
                                         }
                                     }
                                 }
+                                output
+                            } else {
+                                "Error parsing response".to_string()
                             }
-                            app.update_cell_output(i, output);
                         }
-                    }
-                    Err(e) => {
-                        app.update_cell_output(i, format!("Error connecting to server: {}", e));
-                    }
-                }
+                        Err(e) => format!("Error connecting to server: {}", e),
+                    };
+                    let _ = tx.send((i, output)).await;
+                });
             }
+        }
+
+        // Check for finished tasks
+        while let Ok((i, output)) = rx.try_recv() {
+            app.running_cells.remove(&i);
+            app.update_cell_output(i, output);
         }
 
         terminal.draw(|f| ui(f, app))?;
@@ -826,9 +841,27 @@ async fn run_app<B: Backend + std::io::Write>(terminal: &mut Terminal<B>, app: &
                                             } else {
                                                 let mut is_interactive = false;
                                                 let mut cmd_to_run = String::new();
+                                                let mut force_interactive = false;
 
                                                 if let Some(cell) = app.cells.get(cell_idx) {
-                                                    if cell.cell_type == CellType::Shell {
+                                                    if app.running_cells.contains(&cell_idx) {
+                                                        force_interactive = true;
+                                                        is_interactive = true;
+                                                        if cell.cell_type == CellType::Python {
+                                                            // Write to temp file
+                                                            if let Ok(mut file) = tempfile::Builder::new().suffix(".py").tempfile() {
+                                                                if write!(file, "{}", cell.content).is_ok() {
+                                                                    let path = file.path().to_string_lossy().to_string();
+                                                                    // Keep file alive by persisting it? tempfile deletes on drop.
+                                                                    // We need to persist it or use a non-tempfile.
+                                                                    let (_, path) = file.keep().unwrap();
+                                                                    cmd_to_run = format!("python3 {}", path.to_string_lossy());
+                                                                }
+                                                            }
+                                                        } else {
+                                                            cmd_to_run = cell.content.clone();
+                                                        }
+                                                    } else if cell.cell_type == CellType::Shell {
                                                         let cmd = cell.content.trim();
                                                         if cmd.starts_with("vi") || cmd.starts_with("vim") || cmd.starts_with("nano") {
                                                             is_interactive = true;
@@ -838,43 +871,52 @@ async fn run_app<B: Backend + std::io::Write>(terminal: &mut Terminal<B>, app: &
                                                 }
 
                                                 if is_interactive {
-                                                    disable_raw_mode()?;
-                                                    execute!(terminal.backend_mut(), LeaveAlternateScreen)?;
-                                                    
-                                                    let _ = run_interactive(&cmd_to_run);
-                                                    
-                                                    execute!(terminal.backend_mut(), EnterAlternateScreen)?;
-                                                    enable_raw_mode()?;
-                                                    terminal.clear()?;
+                                                    if force_interactive {
+                                                        app.running_cells.remove(&cell_idx);
+                                                        let _ = spawn_external_terminal(&cmd_to_run);
+                                                    } else {
+                                                        disable_raw_mode()?;
+                                                        execute!(terminal.backend_mut(), LeaveAlternateScreen)?;
+                                                        
+                                                        let _ = run_interactive(&cmd_to_run);
+                                                        
+                                                        execute!(terminal.backend_mut(), EnterAlternateScreen)?;
+                                                        enable_raw_mode()?;
+                                                        terminal.clear()?;
+                                                    }
                                                 } else if let Some(req) = app.get_run_request(cell_idx) {
                                                     let client = client.clone();
-                                                    let res = client.post("http://127.0.0.1:3000/exec")
-                                                        .json(&req)
-                                                        .send()
-                                                        .await;
+                                                    let tx = tx.clone();
+                                                    app.running_cells.insert(cell_idx);
 
-                                                    match res {
-                                                        Ok(resp) => {
-                                                            if let Ok(body) = resp.json::<CommandResponse>().await {
-                                                                let mut output = format!("{}{}", body.stdout, body.stderr);
-                                                                if let Some(display_data) = body.display_data {
-                                                                    for data in display_data {
-                                                                        if let Some(image_path) = data.data.get("image/png").or(data.data.get("image/svg+xml")) {
-                                                                            if let Some(path_str) = image_path.as_str() {
-                                                                                output.push_str(&format!("\n[Image: {}]", path_str));
+                                                    tokio::spawn(async move {
+                                                        let res = client.post("http://127.0.0.1:3000/exec")
+                                                            .json(&req)
+                                                            .send()
+                                                            .await;
+
+                                                        let output = match res {
+                                                            Ok(resp) => {
+                                                                if let Ok(body) = resp.json::<CommandResponse>().await {
+                                                                    let mut output = format!("{}{}", body.stdout, body.stderr);
+                                                                    if let Some(display_data) = body.display_data {
+                                                                        for data in display_data {
+                                                                            if let Some(image_path) = data.data.get("image/png").or(data.data.get("image/svg+xml")) {
+                                                                                if let Some(path_str) = image_path.as_str() {
+                                                                                    output.push_str(&format!("\n[Image: {}]", path_str));
+                                                                                }
                                                                             }
                                                                         }
                                                                     }
+                                                                    output
+                                                                } else {
+                                                                    "Error parsing response".to_string()
                                                                 }
-                                                                app.update_cell_output(cell_idx, output);
-                                                            } else {
-                                                                app.update_cell_output(cell_idx, "Error parsing response".to_string());
                                                             }
-                                                        }
-                                                        Err(e) => {
-                                                            app.update_cell_output(cell_idx, format!("Error connecting to server: {}", e));
-                                                        }
-                                                    }
+                                                            Err(e) => format!("Error connecting to server: {}", e),
+                                                        };
+                                                        let _ = tx.send((cell_idx, output)).await;
+                                                    });
                                                 }
                                             }
                                          }
@@ -1133,33 +1175,37 @@ async fn run_app<B: Backend + std::io::Write>(terminal: &mut Terminal<B>, app: &
                                 } else if let Some(i) = app.list_state.selected() {
                                     if let Some(req) = app.get_run_request(i) {
                                         let client = client.clone();
-                                        let res = client.post("http://127.0.0.1:3000/exec")
-                                            .json(&req)
-                                            .send()
-                                            .await;
+                                        let tx = tx.clone();
+                                        app.running_cells.insert(i);
 
-                                        match res {
-                                            Ok(resp) => {
-                                                if let Ok(body) = resp.json::<CommandResponse>().await {
-                                                    let mut output = format!("{}{}", body.stdout, body.stderr);
-                                                    if let Some(display_data) = body.display_data {
-                                                        for data in display_data {
-                                                            if let Some(image_path) = data.data.get("image/png").or(data.data.get("image/svg+xml")) {
-                                                                if let Some(path_str) = image_path.as_str() {
-                                                                    output.push_str(&format!("\n[Image: {}]", path_str));
+                                        tokio::spawn(async move {
+                                            let res = client.post("http://127.0.0.1:3000/exec")
+                                                .json(&req)
+                                                .send()
+                                                .await;
+
+                                            let output = match res {
+                                                Ok(resp) => {
+                                                    if let Ok(body) = resp.json::<CommandResponse>().await {
+                                                        let mut output = format!("{}{}", body.stdout, body.stderr);
+                                                        if let Some(display_data) = body.display_data {
+                                                            for data in display_data {
+                                                                if let Some(image_path) = data.data.get("image/png").or(data.data.get("image/svg+xml")) {
+                                                                    if let Some(path_str) = image_path.as_str() {
+                                                                        output.push_str(&format!("\n[Image: {}]", path_str));
+                                                                    }
                                                                 }
                                                             }
                                                         }
+                                                        output
+                                                    } else {
+                                                        "Error parsing response".to_string()
                                                     }
-                                                    app.update_cell_output(i, output);
-                                                } else {
-                                                    app.update_cell_output(i, "Error parsing response".to_string());
                                                 }
-                                            }
-                                            Err(e) => {
-                                                app.update_cell_output(i, format!("Error connecting to server: {}", e));
-                                            }
-                                        }
+                                                Err(e) => format!("Error connecting to server: {}", e),
+                                            };
+                                            let _ = tx.send((i, output)).await;
+                                        });
                                     }
                                 }
                                 
@@ -1247,6 +1293,18 @@ fn open_editor(content: &str, extension: &str) -> io::Result<String> {
     
     let new_content = std::fs::read_to_string(&path)?;
     Ok(new_content)
+}
+
+fn spawn_external_terminal(command: &str) -> io::Result<()> {
+    let escaped_cmd = command.replace("\\", "\\\\").replace("\"", "\\\"");
+    let applescript = format!("tell application \"Terminal\" to do script \"{}\"", escaped_cmd);
+    
+    Command::new("osascript")
+        .arg("-e")
+        .arg(applescript)
+        .spawn()?;
+        
+    Ok(())
 }
 
 fn run_interactive(command: &str) -> io::Result<()> {
