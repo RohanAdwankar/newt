@@ -988,13 +988,16 @@ async fn run_app<B: Backend + std::io::Write>(terminal: &mut Terminal<B>, app: &
                         KeyCode::Enter => {
                             let cmd = app.command_input.clone();
                             if cmd.starts_with("w ") {
-                                let filename = cmd[2..].trim();
+                                let mut filename = cmd[2..].trim().to_string();
                                 if !filename.is_empty() {
-                                    let p = PathBuf::from(filename);
+                                    if !filename.ends_with(".newt") {
+                                        filename.push_str(".newt");
+                                    }
+                                    let p = PathBuf::from(&filename);
                                     let path = if p.is_absolute() {
                                         p
                                     } else {
-                                        get_app_dir().join(filename)
+                                        get_app_dir().join(&filename)
                                     };
 
                                     if path.exists() {
@@ -1349,7 +1352,11 @@ async fn run_app<B: Backend + std::io::Write>(terminal: &mut Terminal<B>, app: &
                                 if i > 0 {
                                     if let Some(old_path) = app.available_files.get(i - 1) {
                                         let mut new_path = old_path.clone();
-                                        new_path.set_file_name(&app.rename_input);
+                                        let mut new_name = app.rename_input.clone();
+                                        if !new_name.ends_with(".newt") {
+                                            new_name.push_str(".newt");
+                                        }
+                                        new_path.set_file_name(&new_name);
                                         
                                         if fs::rename(old_path, &new_path).is_ok() {
                                             // Update file_path if we renamed the currently open file
@@ -1359,7 +1366,7 @@ async fn run_app<B: Backend + std::io::Write>(terminal: &mut Terminal<B>, app: &
                                                 }
                                             }
                                             app.refresh_file_list();
-                                            app.status_message = Some(format!("Renamed to {}", app.rename_input));
+                                            app.status_message = Some(format!("Renamed to {}", new_name));
                                         } else {
                                             app.status_message = Some("Rename failed".to_string());
                                         }
