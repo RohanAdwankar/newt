@@ -505,11 +505,11 @@ async fn submit_input(Json(payload): Json<InputSubmitRequest>) -> Json<String> {
 pub async fn run_server() {
     let app = app();
     // Try to bind to the port, if it fails, assume server is already running and just return
-    if let Ok(listener) = tokio::net::TcpListener::bind("127.0.0.1:3000").await {
-        // println!("Server running on http://127.0.0.1:3000");
+    if let Ok(listener) = tokio::net::TcpListener::bind("127.0.0.1:3030").await {
+        // println!("Server running on http://127.0.0.1:3030");
         axum::serve(listener, app).await.unwrap();
     } else {
-        eprintln!("Server already running on http://127.0.0.1:3000");
+        eprintln!("Server already running on http://127.0.0.1:3030");
     }
 }
 

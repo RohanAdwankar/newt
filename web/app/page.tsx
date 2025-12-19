@@ -9,7 +9,7 @@ import { v4 as uuidv4 } from 'uuid';
 import { createKernel, ExecutionMode } from '../lib/kernels';
 import { arrayMove } from '@dnd-kit/sortable';
 
-const API_URL = 'http://127.0.0.1:3000';
+const API_URL = 'http://127.0.0.1:3030';
 
 type Focus = 'editor' | 'sidebar';
 type InputMode = 'normal' | 'editing' | 'command' | 'renaming' | 'polling' | 'confirm_delete';

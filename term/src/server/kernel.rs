@@ -537,14 +537,30 @@ impl RustKernel {
         let mut has_user_main = false;
         
         for block in history {
-            let trimmed = block.trim();
-            if trimmed.starts_with("fn ") || trimmed.starts_with("struct ") || trimmed.starts_with("enum ") || trimmed.starts_with("impl ") || trimmed.starts_with("use ") || trimmed.starts_with("mod ") || trimmed.starts_with("type ") {
-                if trimmed.starts_with("fn main") {
+            let mut content = block.trim();
+            
+            // Extract leading 'use' statements to handle mixed blocks like "use std::io; let x = ..."
+            while content.starts_with("use ") {
+                if let Some(end) = content.find(';') {
+                    let use_stmt = &content[..=end];
+                    items.push(use_stmt);
+                    content = content[end+1..].trim();
+                } else {
+                    break;
+                }
+            }
+            
+            if content.is_empty() {
+                continue;
+            }
+
+            if content.starts_with("fn ") || content.starts_with("struct ") || content.starts_with("enum ") || content.starts_with("impl ") || content.starts_with("mod ") || content.starts_with("type ") {
+                if content.starts_with("fn main") {
                     has_user_main = true;
                 }
-                items.push(block.as_str());
+                items.push(content);
             } else {
-                stmts.push(block.as_str());
+                stmts.push(content);
             }
         }
         
@@ -558,24 +574,126 @@ impl RustKernel {
             return format!(r#"
 {}
 
+// Newt Input Support
+use std::io::Read;
+use std::io::Write;
+use std::thread;
+use std::time::Duration;
+use std::fs;
+use std::env;
+
+mod newt_io {{
+    use std::io;
+    pub struct Stdin;
+    pub fn stdin() -> Stdin {{ Stdin }}
+    impl Stdin {{
+        pub fn read_line(&self, buf: &mut String) -> io::Result<usize> {{
+            let content = super::input();
+            buf.push_str(&content);
+            // read_line typically includes the newline if user pressed enter.
+            // Our input() returns raw content. If it doesn't have newline, we might want to add it?
+            // But prompt() usually strips it? No, prompt returns text.
+            // Let's assume we should append newline to simulate terminal behavior.
+            if !buf.ends_with('\n') {{
+                buf.push('\n');
+            }}
+            Ok(content.len() + 1)
+        }}
+    }}
+}}
+
+fn input() -> String {{
+    let temp_dir = env::temp_dir();
+    let req_path = temp_dir.join("newt_web_input_req");
+    let res_path = temp_dir.join("newt_web_input_res");
+
+    if res_path.exists() {{
+        let _ = fs::remove_file(&res_path);
+    }}
+
+    // Write request
+    if let Ok(_) = fs::write(&req_path, "") {{
+        // Wait for response
+        while !res_path.exists() {{
+            thread::sleep(Duration::from_millis(100));
+        }}
+        
+        if let Ok(content) = fs::read_to_string(&res_path) {{
+            let _ = fs::remove_file(&req_path);
+            let _ = fs::remove_file(&res_path);
+            return content;
+        }}
+    }}
+    String::new()
+}}
+
 fn main() {{
 {}
 }}
-"#, filtered_items.join("\n"), stmts.join("\n"));
+"#, filtered_items.join("\n").replace("std::io::stdin()", "newt_io::stdin()").replace("io::stdin()", "newt_io::stdin()"), stmts.join("\n").replace("std::io::stdin()", "newt_io::stdin()").replace("io::stdin()", "newt_io::stdin()"));
         }
         
         if has_user_main {
             // User provided main and no loose statements. Use user's main.
-            return items.join("\n");
+            return items.join("\n").replace("std::io::stdin()", "newt_io::stdin()").replace("io::stdin()", "newt_io::stdin()");
         }
         
         // No statements and no user main. Generate empty main to ensure compilation.
         format!(r#"
 {}
 
+// Newt Input Support
+use std::io::Read;
+use std::io::Write;
+use std::thread;
+use std::time::Duration;
+use std::fs;
+use std::env;
+
+mod newt_io {{
+    use std::io;
+    pub struct Stdin;
+    pub fn stdin() -> Stdin {{ Stdin }}
+    impl Stdin {{
+        pub fn read_line(&self, buf: &mut String) -> io::Result<usize> {{
+            let content = super::input();
+            buf.push_str(&content);
+            if !buf.ends_with('\n') {{
+                buf.push('\n');
+            }}
+            Ok(content.len() + 1)
+        }}
+    }}
+}}
+
+fn input() -> String {{
+    let temp_dir = env::temp_dir();
+    let req_path = temp_dir.join("newt_web_input_req");
+    let res_path = temp_dir.join("newt_web_input_res");
+
+    if res_path.exists() {{
+        let _ = fs::remove_file(&res_path);
+    }}
+
+    // Write request
+    if let Ok(_) = fs::write(&req_path, "") {{
+        // Wait for response
+        while !res_path.exists() {{
+            thread::sleep(Duration::from_millis(100));
+        }}
+        
+        if let Ok(content) = fs::read_to_string(&res_path) {{
+            let _ = fs::remove_file(&req_path);
+            let _ = fs::remove_file(&res_path);
+            return content;
+        }}
+    }}
+    String::new()
+}}
+
 fn main() {{
 }}
-"#, items.join("\n"))
+"#, items.join("\n").replace("std::io::stdin()", "newt_io::stdin()").replace("io::stdin()", "newt_io::stdin()"))
     }
 
     fn compile_and_run(&self, source: &str) -> Result<KernelResponse, String> {
@@ -965,32 +1083,106 @@ impl GoKernel {
             
             // Heuristic: Check if block starts with top-level keywords
             let trimmed = processed_block.trim();
+            
+            // Split block into lines to handle mixed declarations and statements
+            let lines: Vec<&str> = processed_block.lines().collect();
+            let mut is_mixed = false;
+            
+            // If it starts with a declaration keyword but has multiple lines or semicolons, it might be mixed
             if trimmed.starts_with("type ") || trimmed.starts_with("func ") || trimmed.starts_with("const ") || trimmed.starts_with("var ") {
+                // Check if it's a simple one-line declaration or a block
+                // If it contains semicolons (not in quotes), it might be multiple statements
+                // Simple check for semicolon
+                if processed_block.contains(';') {
+                    is_mixed = true;
+                }
+                // If multiple lines, check if subsequent lines are statements
+                if lines.len() > 1 {
+                    // This is hard to detect perfectly without a parser.
+                    // But if we see "var x int\nx = 5", the second line is a statement.
+                    // If we see "func main() {\n...}", it's a function.
+                    if !trimmed.starts_with("func ") {
+                        is_mixed = true;
+                    }
+                }
+            }
+
+            if is_mixed {
+                // Process line by line / statement by statement
+                // This is a simplified parser.
+                // We split by newline and semicolon, but respect quotes/braces?
+                // For now, let's just split by newline and semicolon if not in quotes.
+                
+                // Helper to split by char respecting quotes
+                fn split_respecting_quotes(s: &str, delimiter: char) -> Vec<String> {
+                    let mut result = Vec::new();
+                    let mut current = String::new();
+                    let mut in_quote = false;
+                    let mut escape = false;
+                    
+                    for c in s.chars() {
+                        if escape {
+                            current.push(c);
+                            escape = false;
+                        } else if c == '\\' {
+                            current.push(c);
+                            escape = true;
+                        } else if c == '"' {
+                            current.push(c);
+                            in_quote = !in_quote;
+                        } else if c == delimiter && !in_quote {
+                            result.push(current.trim().to_string());
+                            current.clear();
+                        } else {
+                            current.push(c);
+                        }
+                    }
+                    if !current.trim().is_empty() {
+                        result.push(current.trim().to_string());
+                    }
+                    result
+                }
+
+                let stmts = split_respecting_quotes(&processed_block, ';');
+                for stmt in stmts {
+                    let stmt_lines = split_respecting_quotes(&stmt, '\n');
+                    for line in stmt_lines {
+                        let trimmed_line = line.trim();
+                        if trimmed_line.is_empty() { continue; }
+                        
+                        if trimmed_line.starts_with("type ") || trimmed_line.starts_with("func ") || trimmed_line.starts_with("const ") || trimmed_line.starts_with("var ") {
+                             if trimmed_line.starts_with("func main") {
+                                 // Handle main specially as before
+                                 if is_last {
+                                     if let Some(start) = line.find('{') {
+                                         if let Some(end) = line.rfind('}') {
+                                             if start < end {
+                                                 let body = &line[start+1..end];
+                                                 main_body.push_str(body);
+                                                 main_body.push('\n');
+                                             }
+                                         }
+                                     }
+                                 } else {
+                                     let renamed = line.replace("func main", &format!("func main_ignored_{}", i));
+                                     top_level_decls.push_str(&renamed);
+                                     top_level_decls.push('\n');
+                                 }
+                             } else {
+                                 top_level_decls.push_str(&line);
+                                 top_level_decls.push('\n');
+                             }
+                        } else {
+                            main_body.push_str(&line);
+                            main_body.push('\n');
+                        }
+                    }
+                }
+            } else if trimmed.starts_with("type ") || trimmed.starts_with("func ") || trimmed.starts_with("const ") || trimmed.starts_with("var ") {
                 // It's a declaration.
                 // But wait, if it is "func main", we handle it differently.
                 if re_main.is_match(&processed_block) {
                     if is_last {
-                        // It's the main function for this run.
-                        // We need to extract the body of main and put it in our main_body?
-                        // Or just append it to top_level_decls?
-                        // If we have multiple mains, we can't have them all at top level.
-                        // We are building a SINGLE main.
-                        // So if user provides main, we should take its body and put it in our main.
-                        // Or we rename it?
-                        // If we rename it, it's just another function.
-                        // But we want its side effects (printing etc) to happen.
-                        // So we should call it?
-                        
-                        // Let's stick to: rename old mains to main_ignored_i and call them?
-                        // No, we don't want to re-run old mains.
-                        // We only want to run the LAST main if provided.
-                        // If previous blocks had main, we rename them so they don't conflict, but we don't call them.
-                        
-                        // If this block is NOT last, and has main, rename it.
-                        let renamed = re_main.replace(&processed_block, format!("func main_ignored_{}(", i));
-                        top_level_decls.push_str(&renamed);
-                        top_level_decls.push('\n');
-                    } else {
                         // It is last. It has main.
                         // We can just append it to top_level_decls.
                         // But we also have main_body from other blocks (if any).
@@ -1019,6 +1211,11 @@ impl GoKernel {
                                 }
                             }
                         }
+                    } else {
+                        // If this block is NOT last, and has main, rename it.
+                        let renamed = re_main.replace(&processed_block, format!("func main_ignored_{}(", i));
+                        top_level_decls.push_str(&renamed);
+                        top_level_decls.push('\n');
                     }
                 } else {
                     // Regular declaration
@@ -1044,13 +1241,99 @@ impl GoKernel {
             for imp in imports {
                 final_source.push_str(&format!("\t\"{}\"\n", imp));
             }
+            // Add Newt imports
+            final_source.push_str("\t\"os\"\n");
+            final_source.push_str("\t\"path/filepath\"\n");
+            final_source.push_str("\t\"time\"\n");
+            final_source.push_str("\t\"io/ioutil\"\n");
+            final_source.push_str(")\n");
+        } else {
+            final_source.push_str("import (\n");
+            final_source.push_str("\t\"os\"\n");
+            final_source.push_str("\t\"path/filepath\"\n");
+            final_source.push_str("\t\"time\"\n");
+            final_source.push_str("\t\"io/ioutil\"\n");
+            final_source.push_str("\t\"fmt\"\n"); // Ensure fmt is available for our wrappers
             final_source.push_str(")\n");
         }
 
-        final_source.push_str(&top_level_decls);
+        // Perform replacements for Input Support
+        let processed_decls = top_level_decls
+            .replace("fmt.Scan(", "newt_scan(")
+            .replace("fmt.Scanln(", "newt_scanln(")
+            .replace("fmt.Scanf(", "newt_scanf(")
+            .replace("bufio.NewReader(os.Stdin)", "bufio.NewReader(newtStdin)")
+            .replace("bufio.NewScanner(os.Stdin)", "bufio.NewScanner(newtStdin)");
+
+        final_source.push_str(&processed_decls);
         
+        // Add Newt Input Helper
+        final_source.push_str(r#"
+func input() string {
+    tempDir := os.TempDir()
+    reqPath := filepath.Join(tempDir, "newt_web_input_req")
+    resPath := filepath.Join(tempDir, "newt_web_input_res")
+
+    if _, err := os.Stat(resPath); err == nil {
+        os.Remove(resPath)
+    }
+
+    if err := ioutil.WriteFile(reqPath, []byte(""), 0644); err == nil {
+        for {
+            if _, err := os.Stat(resPath); err == nil {
+                break
+            }
+            time.Sleep(100 * time.Millisecond)
+        }
+        
+        if content, err := ioutil.ReadFile(resPath); err == nil {
+            os.Remove(reqPath)
+            os.Remove(resPath)
+            return string(content)
+        }
+    }
+    return ""
+}
+
+type NewtInputReader struct {
+    buffer string
+    pos    int
+}
+
+func (r *NewtInputReader) Read(p []byte) (n int, err error) {
+    if r.pos >= len(r.buffer) {
+        r.buffer = input() + "\n"
+        r.pos = 0
+    }
+    n = copy(p, r.buffer[r.pos:])
+    r.pos += n
+    return n, nil
+}
+
+var newtStdin = &NewtInputReader{}
+
+func newt_scan(a ...interface{}) (n int, err error) {
+    return fmt.Fscan(newtStdin, a...)
+}
+
+func newt_scanln(a ...interface{}) (n int, err error) {
+    return fmt.Fscanln(newtStdin, a...)
+}
+
+func newt_scanf(format string, a ...interface{}) (n int, err error) {
+    return fmt.Fscanf(newtStdin, format, a...)
+}
+"#);
+        
+        let processed_body = main_body
+            .replace("fmt.Scan(", "newt_scan(")
+            .replace("fmt.Scanln(", "newt_scanln(")
+            .replace("fmt.Scanf(", "newt_scanf(")
+            .replace("bufio.NewReader(os.Stdin)", "bufio.NewReader(newtStdin)")
+            .replace("bufio.NewScanner(os.Stdin)", "bufio.NewScanner(newtStdin)");
+
         final_source.push_str("\nfunc main() {\n");
-        final_source.push_str(&main_body);
+        final_source.push_str(&processed_body);
         final_source.push_str("\n}\n");
         
         // println!("DEBUG GO SOURCE:\n{}", final_source);

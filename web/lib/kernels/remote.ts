@@ -1,6 +1,6 @@
 import { Kernel, ExecutionResult } from './types';
 
-const API_URL = 'http://127.0.0.1:3000';
+const API_URL = 'http://127.0.0.1:3030';
 
 export class RemoteKernel implements Kernel {
     async execute(code: string, language: string, context: string[] = []): Promise<ExecutionResult> {

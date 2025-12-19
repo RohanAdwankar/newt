@@ -1,4 +1,4 @@
-use newts::server::kernel::{PythonKernel, NodeKernel, CppKernel, Kernel};
+use newts::server::kernel::{PythonKernel, NodeKernel, CppKernel, RustKernel, GoKernel, Kernel};
 use std::thread;
 use std::time::Duration;
 use std::fs;
@@ -76,3 +76,40 @@ fn test_cpp_input() {
     assert_eq!(resp.status, Some(0));
     assert!(resp.stdout.contains("Got: HelloCpp"));
 }
+
+#[test]
+fn test_rust_input() {
+    let mut kernel = RustKernel::new();
+    
+    // Use standard std::io::stdin
+    let code = "use std::io; let mut x = String::new(); io::stdin().read_line(&mut x).unwrap(); println!(\"Got: {}\", x.trim());".to_string();
+    
+    let handle = thread::spawn(move || {
+        kernel.execute(code, None, None, None).expect("Exec failed")
+    });
+
+    simulate_input("HelloRust");
+
+    let resp = handle.join().expect("Thread panicked");
+    assert_eq!(resp.status, Some(0));
+    assert!(resp.stdout.contains("Got: HelloRust"));
+}
+
+#[test]
+fn test_go_input() {
+    let mut kernel = GoKernel::new();
+    
+    // Use standard fmt.Scan with short declaration to avoid top-level var issue
+    let code = "x := \"\"; fmt.Scan(&x); fmt.Printf(\"Got: %s\", x)".to_string();
+    
+    let handle = thread::spawn(move || {
+        kernel.execute(code, None, None, None).expect("Exec failed")
+    });
+
+    simulate_input("HelloGo");
+
+    let resp = handle.join().expect("Thread panicked");
+    assert_eq!(resp.status, Some(0));
+    assert!(resp.stdout.contains("Got: HelloGo"));
+}
+

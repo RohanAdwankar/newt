@@ -404,14 +404,14 @@ pub async fn run() -> Result<(), Box<dyn Error>> {
     let args = Args::parse();
 
     if args.serve {
-        println!("Starting server on http://127.0.0.1:3000");
+        println!("Starting server on http://127.0.0.1:3030");
         server::run_server().await;
         return Ok(());
     }
 
     // Check if server is running
     let client = reqwest::Client::new();
-    let server_running = client.get("http://127.0.0.1:3000").send().await.is_ok();
+    let server_running = client.get("http://127.0.0.1:3030").send().await.is_ok();
     
     if !server_running {
         // Start server in background
@@ -422,7 +422,7 @@ pub async fn run() -> Result<(), Box<dyn Error>> {
         // Wait for server to start
         let mut retries = 0;
         while retries < 50 {
-            if client.get("http://127.0.0.1:3000").send().await.is_ok() {
+            if client.get("http://127.0.0.1:3030").send().await.is_ok() {
                 break;
             }
             tokio::time::sleep(std::time::Duration::from_millis(100)).await;
@@ -480,7 +480,7 @@ async fn run_app<B: Backend + std::io::Write>(terminal: &mut Terminal<B>, app: &
                 app.running_cells.insert(i);
 
                 tokio::spawn(async move {
-                    let res = client.post("http://127.0.0.1:3000/exec")
+                    let res = client.post("http://127.0.0.1:3030/exec")
                         .json(&req)
                         .send()
                         .await;
@@ -895,7 +895,7 @@ async fn run_app<B: Backend + std::io::Write>(terminal: &mut Terminal<B>, app: &
                                                     app.running_cells.insert(cell_idx);
 
                                                     tokio::spawn(async move {
-                                                        let res = client.post("http://127.0.0.1:3000/exec")
+                                                        let res = client.post("http://127.0.0.1:3030/exec")
                                                             .json(&req)
                                                             .send()
                                                             .await;
@@ -954,7 +954,7 @@ async fn run_app<B: Backend + std::io::Write>(terminal: &mut Terminal<B>, app: &
                                     if let Some(path) = &app.file_path {
                                         let notebook = Notebook { cells: app.cells.clone() };
                                         let client = client.clone();
-                                        let res = client.post("http://127.0.0.1:3000/export")
+                                        let res = client.post("http://127.0.0.1:3030/export")
                                             .json(&notebook)
                                             .send()
                                             .await;
@@ -981,7 +981,7 @@ async fn run_app<B: Backend + std::io::Write>(terminal: &mut Terminal<B>, app: &
                                     for i in 0..app.cells.len() {
                                         if let Some(req) = app.get_run_request(i) {
                                             let client = client.clone();
-                                            let res = client.post("http://127.0.0.1:3000/exec")
+                                            let res = client.post("http://127.0.0.1:3030/exec")
                                                 .json(&req)
                                                 .send()
                                                 .await;
@@ -1184,7 +1184,7 @@ async fn run_app<B: Backend + std::io::Write>(terminal: &mut Terminal<B>, app: &
                                         app.running_cells.insert(i);
 
                                         tokio::spawn(async move {
-                                            let res = client.post("http://127.0.0.1:3000/exec")
+                                            let res = client.post("http://127.0.0.1:3030/exec")
                                                 .json(&req)
                                                 .send()
                                                 .await;
