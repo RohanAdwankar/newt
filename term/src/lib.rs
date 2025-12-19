@@ -999,15 +999,25 @@ async fn run_app<B: Backend + std::io::Write>(terminal: &mut Terminal<B>, app: &
                                 "ra" | "runall" => {
                                     app.input_mode = InputMode::Normal;
                                     // Run all cells
+                                    let mut requests = Vec::new();
                                     for i in 0..app.cells.len() {
                                         if let Some(req) = app.get_run_request(i) {
-                                            let client = client.clone();
+                                            requests.push((i, req));
+                                            app.running_cells.insert(i);
+                                        }
+                                    }
+
+                                    let client = client.clone();
+                                    let tx = tx.clone();
+
+                                    tokio::spawn(async move {
+                                        for (i, req) in requests {
                                             let res = client.post("http://127.0.0.1:3030/exec")
                                                 .json(&req)
                                                 .send()
                                                 .await;
 
-                                            match res {
+                                            let output = match res {
                                                 Ok(resp) => {
                                                     if let Ok(body) = resp.json::<CommandResponse>().await {
                                                         let mut output = format!("{}{}", body.stdout, body.stderr);
@@ -1020,17 +1030,16 @@ async fn run_app<B: Backend + std::io::Write>(terminal: &mut Terminal<B>, app: &
                                                                 }
                                                             }
                                                         }
-                                                        app.update_cell_output(i, output);
+                                                        output
                                                     } else {
-                                                        app.update_cell_output(i, "Error parsing response".to_string());
+                                                        "Error parsing response".to_string()
                                                     }
                                                 }
-                                                Err(e) => {
-                                                    app.update_cell_output(i, format!("Error connecting to server: {}", e));
-                                                }
-                                            }
+                                                Err(e) => format!("Error connecting to server: {}", e),
+                                            };
+                                            let _ = tx.send((i, output)).await;
                                         }
-                                    }
+                                    });
                                 }
                                 "rust" => {
                                     if let Some(i) = app.list_state.selected() {
