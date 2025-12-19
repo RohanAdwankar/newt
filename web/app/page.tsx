@@ -527,7 +527,7 @@ export default function App() {
     setStatusMessage("Exported to Markdown");
   };
 
-  const executeCommand = async (cmd: string) => {
+    const executeCommand = async (cmd: string) => {
     const parts = cmd.split(' ');
     const command = parts[0];
     const args = parts.slice(1);
@@ -550,14 +550,16 @@ export default function App() {
         if (command === 'wq') {
             await saveNotebook();
         }
-    } else if (['rust', 'cpp', 'c', 'py', 'ts', 'js'].includes(command)) {
+    } else if (['rust', 'cpp', 'c', 'py', 'ts', 'js', 'md', 'markdown'].includes(command)) {
         const langMap: Record<string, CellType> = {
             'rust': 'rust',
             'cpp': 'cpp',
             'c': 'c',
             'py': 'python',
             'ts': 'typescript',
-            'js': 'javascript'
+            'js': 'javascript',
+            'md': 'markdown',
+            'markdown': 'markdown'
         };
         const newType = langMap[command];
         if (newType) {
@@ -608,9 +610,14 @@ export default function App() {
         }
     }
   };
-  const runCell = async (index: number) => {
+    const runCell = async (index: number) => {
     const cell = cells[index];
     if (!cell) return;
+
+        // Skip execution for Markdown cells
+        if (cell.type === 'markdown') {
+                return;
+        }
 
     // Check for language change
     const content = cell.content.trim();
@@ -627,7 +634,9 @@ export default function App() {
         'c++': 'cpp',
         'go': 'go',
         'shell': 'shell',
-        'sh': 'shell'
+        'sh': 'shell',
+        'md': 'markdown',
+        'markdown': 'markdown'
     };
 
     if (langMap[content]) {
@@ -675,8 +684,9 @@ export default function App() {
     }
   };
 
-  const addCell = (index: number) => {
-    const newCell: Cell = { id: uuidv4(), content: '', output: '', type: 'python' };
+    const addCell = (index: number) => {
+        const inheritType: CellType = cells[primaryIndex]?.type || 'python';
+        const newCell: Cell = { id: uuidv4(), content: '', output: '', type: inheritType };
     setCells(prev => {
         const newCells = [...prev];
         newCells.splice(index, 0, newCell);

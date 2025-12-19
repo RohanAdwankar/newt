@@ -122,6 +122,7 @@ export const Toolbar: React.FC<ToolbarProps> = ({
             <option value="cpp">C++</option>
             <option value="go">Go</option>
             <option value="shell">Shell</option>
+            <option value="markdown">Markdown</option>
           </select>
         </div>
       )}

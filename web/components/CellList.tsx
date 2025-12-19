@@ -19,7 +19,7 @@ import { SortableCell } from './SortableCell';
 // import { highlight, languages } from 'prismjs';
 // ...
 
-export type CellType = 'rust' | 'python' | 'javascript' | 'typescript' | 'c' | 'cpp' | 'go' | 'shell';
+export type CellType = 'rust' | 'python' | 'javascript' | 'typescript' | 'c' | 'cpp' | 'go' | 'shell' | 'markdown';
 
 export interface Cell {
   id: string;

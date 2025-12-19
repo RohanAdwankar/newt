@@ -13,6 +13,8 @@ import { cpp } from '@codemirror/lang-cpp';
 import { go } from '@codemirror/lang-go';
 import { EditorView } from '@codemirror/view';
 import { Cell } from './CellList';
+import { markdown as cmMarkdown } from '@codemirror/lang-markdown';
+import { marked } from 'marked';
 
 // Remove prismjs imports as we are using CodeMirror
 // import Editor from 'react-simple-code-editor';
@@ -115,6 +117,7 @@ export const SortableCell: React.FC<SortableCellProps> = ({
         case 'c':
         case 'cpp': exts.push(cpp()); break;
         case 'go': exts.push(go()); break;
+        case 'markdown': exts.push(cmMarkdown()); break;
         // shell not supported directly in basic packages, fallback to plain text or simple highlighting if available
     }
     
@@ -230,37 +233,52 @@ export const SortableCell: React.FC<SortableCellProps> = ({
       </div>
 
       <div className={clsx("px-2 pb-2 flex flex-col", isFullscreen ? "flex-1 overflow-hidden" : "")}>
-        <div
-          className={clsx(
-            "font-mono text-sm border rounded overflow-hidden",
-            isSelected && editing ? "border-accent" : "border-transparent",
-            isFullscreen ? "flex-1 overflow-y-auto" : ""
-          )}
-          onClick={(e) => {
-            if (!editing) {
+        {cell.type === 'markdown' && !(isSelected && editing) ? (
+          <div
+            className={clsx(
+              "prose max-w-none text-text-primary border rounded overflow-hidden p-3",
+              "dark:prose-invert",
+              isFullscreen ? "flex-1 overflow-y-auto" : "",
+              isSelected ? "border-accent/40" : "border-transparent"
+            )}
+            onClick={(e) => {
               onCellSelect(index, e.metaKey || e.ctrlKey, e.shiftKey);
-            }
-          }}
-        >
-          <CodeMirror
-            ref={cmRef}
-            value={cell.content}
-            height={isFullscreen ? "100%" : "auto"}
-            extensions={getExtensions()}
-            onChange={(value) => onContentChange(cell.id, value)}
-            theme={theme === 'dark' ? 'dark' : 'light'}
-            editable={editing && isSelected}
-            basicSetup={{
-                lineNumbers: false,
-                foldGutter: false,
-                highlightActiveLine: false,
-                highlightActiveLineGutter: false,
             }}
-            className="cm-editor-custom focus:outline-none"
+            dangerouslySetInnerHTML={{ __html: marked.parse(cell.content || '') }}
           />
-        </div>
+        ) : (
+          <div
+            className={clsx(
+              "font-mono text-sm border rounded overflow-hidden",
+              isSelected && editing ? "border-accent" : "border-transparent",
+              isFullscreen ? "flex-1 overflow-y-auto" : ""
+            )}
+            onClick={(e) => {
+              if (!editing) {
+                onCellSelect(index, e.metaKey || e.ctrlKey, e.shiftKey);
+              }
+            }}
+          >
+            <CodeMirror
+              ref={cmRef}
+              value={cell.content}
+              height={isFullscreen ? "100%" : "auto"}
+              extensions={getExtensions()}
+              onChange={(value) => onContentChange(cell.id, value)}
+              theme={theme === 'dark' ? 'dark' : 'light'}
+              editable={editing && isSelected}
+              basicSetup={{
+                  lineNumbers: false,
+                  foldGutter: false,
+                  highlightActiveLine: false,
+                  highlightActiveLineGutter: false,
+              }}
+              className="cm-editor-custom focus:outline-none"
+            />
+          </div>
+        )}
 
-        {(cell.output || (cell.display_data && cell.display_data.length > 0)) && (
+        {cell.type !== 'markdown' && (cell.output || (cell.display_data && cell.display_data.length > 0)) && (
           <div
             className={clsx(
                 "mt-2 border-t border-border-color pt-2 cursor-pointer",
