@@ -199,11 +199,29 @@ def main():
             builtins.display = _display
             builtins.input = _newt_input
 
+            import ast
             success = True
             with contextlib.redirect_stdout(stdout_capture), contextlib.redirect_stderr(stderr_capture):
                 try:
-                    # Execute code in the persistent globals dictionary
-                    exec(code, _newt_globals)
+                    # Parse code to AST
+                    tree = ast.parse(code)
+                    last_expr = None
+                    if tree.body and isinstance(tree.body[-1], ast.Expr):
+                        last_expr = tree.body.pop()
+                    
+                    # Execute all but the last statement
+                    if tree.body:
+                        exec(compile(tree, filename="<string>", mode="exec"), _newt_globals)
+                    
+                    # Evaluate the last expression if it exists
+                    if last_expr:
+                        res = eval(compile(ast.Expression(last_expr.value), filename="<string>", mode="eval"), _newt_globals)
+                        if res is not None:
+                            # Print repr to stdout so it shows up in TUI and Frontend
+                            print(repr(res))
+                            # Also try to display rich content if available
+                            _display(res)
+
                 except Exception:
                     traceback.print_exc()
                     success = False

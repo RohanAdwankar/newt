@@ -11,7 +11,6 @@ use std::fs;
 use std::path::PathBuf;
 
 pub mod kernel;
-use std::process::Command;
 use tower_http::cors::{CorsLayer, Any};
 
 use crate::{CommandRequest, CommandResponse, CellType, Notebook, ExportResponse};
@@ -66,6 +65,12 @@ pub async fn export_notebook(Json(notebook): Json<Notebook>) -> Json<ExportRespo
     let mut markdown = String::from("# Newt Notebook Export\n\n");
 
     for (i, cell) in notebook.cells.iter().enumerate() {
+        if cell.cell_type == CellType::Markdown {
+            markdown.push_str(&cell.content);
+            markdown.push_str("\n\n");
+            continue;
+        }
+
         let lang_str = match cell.cell_type {
             CellType::Shell => "bash",
             CellType::Rust => "rust",
@@ -75,6 +80,7 @@ pub async fn export_notebook(Json(notebook): Json<Notebook>) -> Json<ExportRespo
             CellType::C => "c",
             CellType::Cpp => "cpp",
             CellType::Go => "go",
+            CellType::Markdown => "markdown",
         };
 
         markdown.push_str(&format!("## Cell {} ({})\n", i + 1, lang_str));

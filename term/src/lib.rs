@@ -101,6 +101,7 @@ pub enum CellType {
     C,
     Cpp,
     Go,
+    Markdown,
 }
 
 #[derive(Clone, Serialize, Deserialize, Debug)]
@@ -349,6 +350,7 @@ impl App {
                 CellType::Cpp => Some("cpp".to_string()),
                 CellType::Go => Some("go".to_string()),
                 CellType::Shell => None,
+                CellType::Markdown => return None,
             };
 
             let mut context = Vec::new();
@@ -364,6 +366,7 @@ impl App {
                              CellType::Cpp => Some("cpp".to_string()),
                              CellType::Go => Some("go".to_string()),
                              CellType::Shell => None,
+                             CellType::Markdown => None,
                         };
                         if prev_lang.as_ref() == Some(l) {
                             context.push(prev_cell.content.clone());
@@ -757,12 +760,22 @@ async fn run_app<B: Backend + std::io::Write>(terminal: &mut Terminal<B>, app: &
                                     KeyCode::Char('o') => {
                                         if let Some(i) = app.list_state.selected() {
                                             let idx = if app.cells.is_empty() { 0 } else { (i / 2) + 1 };
-                                            app.insert_cell(idx, CellType::Shell);
+                                            let type_to_add = if let Some(cell) = app.cells.get(i / 2) {
+                                                cell.cell_type.clone()
+                                            } else {
+                                                CellType::Shell
+                                            };
+                                            app.insert_cell(idx, type_to_add);
                                         }
                                     }
                                     KeyCode::Char('O') => {
                                         if let Some(i) = app.list_state.selected() {
-                                            app.insert_cell(i / 2, CellType::Shell);
+                                            let type_to_add = if let Some(cell) = app.cells.get(i / 2) {
+                                                cell.cell_type.clone()
+                                            } else {
+                                                CellType::Shell
+                                            };
+                                            app.insert_cell(i / 2, type_to_add);
                                         }
                                     }
                                     KeyCode::Char('d') => {
@@ -801,6 +814,7 @@ async fn run_app<B: Backend + std::io::Write>(terminal: &mut Terminal<B>, app: &
                                                             CellType::Cpp => ".cpp",
                                                             CellType::Go => ".go",
                                                             CellType::Shell => ".sh",
+                                                            CellType::Markdown => ".md",
                                                         };
                                                         
                                                         // Suspend TUI
@@ -829,6 +843,13 @@ async fn run_app<B: Backend + std::io::Write>(terminal: &mut Terminal<B>, app: &
                                             let cell_idx = i / 2;
                                             let is_output = i % 2 == 1;
                                             
+                                            // Skip execution for Markdown
+                                            if let Some(cell) = app.cells.get(cell_idx) {
+                                                if cell.cell_type == CellType::Markdown {
+                                                    return Ok(());
+                                                }
+                                            }
+
                                             if is_output {
                                                 // Try to open output file if present
                                                 if let Some(cell) = app.cells.get(cell_idx) {
@@ -1059,6 +1080,14 @@ async fn run_app<B: Backend + std::io::Write>(terminal: &mut Terminal<B>, app: &
                                     }
                                     app.input_mode = InputMode::Normal;
                                 }
+                                "md" | "markdown" => {
+                                    if let Some(i) = app.list_state.selected() {
+                                        if let Some(cell) = app.cells.get_mut(i / 2) {
+                                            cell.cell_type = CellType::Markdown;
+                                        }
+                                    }
+                                    app.input_mode = InputMode::Normal;
+                                }
                                 _ => {
                                     app.input_mode = InputMode::Normal;
                                 }
@@ -1129,6 +1158,7 @@ async fn run_app<B: Backend + std::io::Write>(terminal: &mut Terminal<B>, app: &
                                 "c" => (Some(CellType::C), ".c"),
                                 "cpp" | "c++" => (Some(CellType::Cpp), ".cpp"),
                                 "go" => (Some(CellType::Go), ".go"),
+                                "md" | "markdown" => (Some(CellType::Markdown), ".md"),
                                 _ => (None, ""),
                             };
 
@@ -1215,8 +1245,13 @@ async fn run_app<B: Backend + std::io::Write>(terminal: &mut Terminal<B>, app: &
                                 }
                                 
                                 if let Some(i) = app.list_state.selected() {
-                                    if i == app.cells.len() - 1 {
-                                        app.add_cell(CellType::Shell);
+                                    if i == app.cells.len() * 2 - 2 { // Last cell input
+                                        let type_to_add = if let Some(cell) = app.cells.last() {
+                                            cell.cell_type.clone()
+                                        } else {
+                                            CellType::Shell
+                                        };
+                                        app.add_cell(type_to_add);
                                     } else {
                                         app.list_state.select(Some(i + 1));
                                         app.input_mode = InputMode::Normal;
@@ -1428,6 +1463,7 @@ fn ui(f: &mut Frame, app: &App) {
             CellType::C => "C",
             CellType::Cpp => "C++",
             CellType::Go => "Go",
+            CellType::Markdown => "Markdown",
         };
         
         let countdown = if let Some(interval) = cell.polling_interval {
@@ -1458,10 +1494,43 @@ fn ui(f: &mut Frame, app: &App) {
             Style::default()
         };
 
-        let lines = vec![
-            Line::from(Span::styled(format!("[{}] {}{}", header, cell.id, countdown), style)),
-            Line::from(format!("In: {}", content)),
-        ];
+        let lines = if cell.cell_type == CellType::Markdown {
+             let is_editing_this = app.input_mode == InputMode::Editing && app.list_state.selected() == Some(i * 2);
+             
+             if is_editing_this {
+                 vec![
+                    Line::from(Span::styled(format!("[{}] {}{}", header, cell.id, countdown), style)),
+                    Line::from(format!("In: {}", content)),
+                 ]
+             } else {
+                 let mut preview_lines = vec![
+                    Line::from(Span::styled(format!("[{}] {}{}", header, cell.id, countdown), style)),
+                 ];
+                 if cell.content.is_empty() {
+                     preview_lines.push(Line::from("(empty)"));
+                 } else {
+                     for line in cell.content.lines() {
+                         if line.starts_with("# ") {
+                             preview_lines.push(Line::from(Span::styled(line, Style::default().fg(Color::Blue).add_modifier(Modifier::BOLD))));
+                         } else if line.starts_with("## ") {
+                             preview_lines.push(Line::from(Span::styled(line, Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD))));
+                         } else if line.starts_with("### ") {
+                             preview_lines.push(Line::from(Span::styled(line, Style::default().fg(Color::Green).add_modifier(Modifier::BOLD))));
+                         } else if line.starts_with("- ") || line.starts_with("* ") {
+                             preview_lines.push(Line::from(format!("  • {}", &line[2..])));
+                         } else {
+                             preview_lines.push(Line::from(line));
+                         }
+                     }
+                 }
+                 preview_lines
+             }
+        } else {
+             vec![
+                Line::from(Span::styled(format!("[{}] {}{}", header, cell.id, countdown), style)),
+                Line::from(format!("In: {}", content)),
+            ]
+        };
         list_items.push(ListItem::new(lines));
 
         // Output Item
@@ -1472,13 +1541,15 @@ fn ui(f: &mut Frame, app: &App) {
         };
 
         let mut output_lines = vec![];
-        if !cell.output.is_empty() {
-            output_lines.push(Line::from(Span::styled("Out:", output_style)));
-            for line in cell.output.lines() {
-                output_lines.push(Line::from(format!("  {}", line)));
+        if cell.cell_type != CellType::Markdown {
+            if !cell.output.is_empty() {
+                output_lines.push(Line::from(Span::styled("Out:", output_style)));
+                for line in cell.output.lines() {
+                    output_lines.push(Line::from(format!("  {}", line)));
+                }
+            } else {
+                 output_lines.push(Line::from(Span::styled("Out: (empty)", output_style)));
             }
-        } else {
-             output_lines.push(Line::from(Span::styled("Out: (empty)", output_style)));
         }
         output_lines.push(Line::from("")); // Spacer
         
