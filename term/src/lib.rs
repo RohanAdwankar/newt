@@ -1273,17 +1273,13 @@ async fn run_app<B: Backend + std::io::Write>(terminal: &mut Terminal<B>, app: &
                     },
                     InputMode::InputPopup => match key.code {
                         KeyCode::Enter => {
-                            // Submit input
-                            let client = client.clone();
-                            let value = app.popup_input.clone();
-                            tokio::spawn(async move {
-                                let _ = client.post("http://127.0.0.1:3000/input/submit")
-                                    .json(&serde_json::json!({ "value": value }))
-                                    .send()
-                                    .await;
-                            });
-                            app.input_mode = InputMode::Normal;
-                            app.popup_input.clear();
+                            // Submit input directly to file to avoid race condition
+                            let temp_dir = std::env::temp_dir();
+                            let res_path = temp_dir.join("newt_web_input_res");
+                            if let Ok(_) = std::fs::write(res_path, &app.popup_input) {
+                                app.input_mode = InputMode::Normal;
+                                app.popup_input.clear();
+                            }
                         }
                         KeyCode::Char(c) => {
                             app.popup_input.push(c);
