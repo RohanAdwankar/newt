@@ -135,6 +135,8 @@ pub struct App {
     pub polling_input: String,
     pub file_to_delete: Option<PathBuf>,
     pub running_cells: std::collections::HashSet<usize>,
+    pub popup_input: String,
+    pub popup_prompt: String,
 }
 
 #[derive(PartialEq)]
@@ -151,6 +153,7 @@ pub enum InputMode {
     Renaming,
     Polling,
     ConfirmDelete,
+    InputPopup,
 }
 
 impl App {
@@ -175,6 +178,8 @@ impl App {
             polling_input: String::new(),
             file_to_delete: None,
             running_cells: std::collections::HashSet::new(),
+            popup_input: String::new(),
+            popup_prompt: String::new(),
         };
 
         // Always refresh file list for sidebar
@@ -511,6 +516,27 @@ async fn run_app<B: Backend + std::io::Write>(terminal: &mut Terminal<B>, app: &
             app.update_cell_output(i, output);
         }
 
+        // Check for input requests
+        if app.input_mode != InputMode::InputPopup {
+            let client = client.clone();
+            // We can't await here easily in the sync loop, so we spawn a check
+            // But we need to get the result back to the main thread.
+            // Let's use another channel for input requests?
+            // Or just do a blocking check since it's local fs?
+            // The server writes to a file in temp dir.
+            let temp_dir = std::env::temp_dir();
+            let req_path = temp_dir.join("newt_web_input_req");
+            let res_path = temp_dir.join("newt_web_input_res");
+            
+            if req_path.exists() && !res_path.exists() {
+                if let Ok(prompt) = std::fs::read_to_string(&req_path) {
+                    app.input_mode = InputMode::InputPopup;
+                    app.popup_prompt = prompt;
+                    app.popup_input.clear();
+                }
+            }
+        }
+
         terminal.draw(|f| ui(f, app))?;
 
         if event::poll(std::time::Duration::from_millis(100))? {
@@ -549,29 +575,6 @@ async fn run_app<B: Backend + std::io::Write>(terminal: &mut Terminal<B>, app: &
 
                 // Handle keys based on Focus and InputMode
                 match app.input_mode {
-                    InputMode::ConfirmDelete => {
-                        match key.code {
-                            KeyCode::Char('y') | KeyCode::Char('Y') => {
-                                if let Some(path) = &app.file_to_delete {
-                                    if let Err(e) = fs::remove_file(path) {
-                                        app.status_message = Some(format!("Error deleting file: {}", e));
-                                    } else {
-                                        app.status_message = Some(format!("Deleted {}", path.display()));
-                                        app.refresh_file_list();
-                                    }
-                                }
-                                app.input_mode = InputMode::Normal;
-                                app.command_input.clear();
-                                app.file_to_delete = None;
-                            }
-                            _ => {
-                                app.status_message = Some("Delete cancelled".to_string());
-                                app.input_mode = InputMode::Normal;
-                                app.command_input.clear();
-                                app.file_to_delete = None;
-                            }
-                        }
-                    }
                     InputMode::Normal => {
                         match app.focus {
                             Focus::Sidebar => {
@@ -1267,11 +1270,55 @@ async fn run_app<B: Backend + std::io::Write>(terminal: &mut Terminal<B>, app: &
                             app.rename_input.pop();
                         }
                         _ => {}
+                    },
+                    InputMode::InputPopup => match key.code {
+                        KeyCode::Enter => {
+                            // Submit input
+                            let client = client.clone();
+                            let value = app.popup_input.clone();
+                            tokio::spawn(async move {
+                                let _ = client.post("http://127.0.0.1:3000/input/submit")
+                                    .json(&serde_json::json!({ "value": value }))
+                                    .send()
+                                    .await;
+                            });
+                            app.input_mode = InputMode::Normal;
+                            app.popup_input.clear();
+                        }
+                        KeyCode::Char(c) => {
+                            app.popup_input.push(c);
+                        }
+                        KeyCode::Backspace => {
+                            app.popup_input.pop();
+                        }
+                        _ => {}
+                    },
+                    InputMode::ConfirmDelete => match key.code {
+                        KeyCode::Char('y') | KeyCode::Char('Y') => {
+                            if let Some(path) = &app.file_to_delete {
+                                if let Err(e) = fs::remove_file(path) {
+                                    app.status_message = Some(format!("Error deleting file: {}", e));
+                                } else {
+                                    app.status_message = Some(format!("Deleted {}", path.display()));
+                                    app.refresh_file_list();
+                                }
+                            }
+                            app.input_mode = InputMode::Normal;
+                            app.command_input.clear();
+                            app.file_to_delete = None;
+                        }
+                        _ => {
+                            app.status_message = Some("Delete cancelled".to_string());
+                            app.input_mode = InputMode::Normal;
+                            app.command_input.clear();
+                            app.file_to_delete = None;
+                        }
                     }
                 }
             }
         }
     }
+    Ok(())
 }
 
 fn open_editor(content: &str, extension: &str) -> io::Result<String> {
@@ -1502,6 +1549,31 @@ fn ui(f: &mut Frame, app: &App) {
                 .style(Style::default().fg(Color::Yellow))
                 .block(Block::default().borders(Borders::ALL).title("Rename File"));
             f.render_widget(input_block, popup_area);
+        }
+        InputMode::InputPopup => {
+            let area = f.area();
+            // Center popup
+            let popup_area = Rect::new(area.width / 2 - 30, area.height / 2 - 2, 60, 5);
+            f.render_widget(ratatui::widgets::Clear, popup_area);
+            
+            let block = Block::default()
+                .borders(Borders::ALL)
+                .title("Input Required")
+                .style(Style::default().fg(Color::Cyan));
+                
+            let inner_area = block.inner(popup_area);
+            
+            let chunks = Layout::default()
+                .direction(Direction::Vertical)
+                .constraints([Constraint::Length(1), Constraint::Length(1), Constraint::Length(1)].as_ref())
+                .split(inner_area);
+                
+            let prompt = Paragraph::new(app.popup_prompt.as_str());
+            let input = Paragraph::new(app.popup_input.as_str()).style(Style::default().fg(Color::Yellow));
+            
+            f.render_widget(block, popup_area);
+            f.render_widget(prompt, chunks[0]);
+            f.render_widget(input, chunks[2]);
         }
     }
 }

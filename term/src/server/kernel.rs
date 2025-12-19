@@ -85,90 +85,48 @@ _newt_client_type = None
 sys.path.append(os.getcwd())
 
 def _newt_input(prompt=""):
-    if _newt_client_type == "web":
-        # Web mode: File-based coordination
-        import time
-        import os
-        
-        # Define paths (using temp dir)
-        temp_dir = tempfile.gettempdir()
-        req_path = os.path.join(temp_dir, "newt_web_input_req")
-        res_path = os.path.join(temp_dir, "newt_web_input_res")
-        
-        # Clean up any stale response file
-        if os.path.exists(res_path):
-            try:
-                os.remove(res_path)
-            except:
-                pass
-
-        # Write request
-        with open(req_path, "w") as f:
-            f.write(prompt)
-            
-        # Wait for response
-        start_time = time.time()
-        while not os.path.exists(res_path):
-            if time.time() - start_time > 300: # 5 min timeout
-                break
-            time.sleep(0.1)
-            
-        # Read response
-        result = ""
-        if os.path.exists(res_path):
-            with open(res_path, "r") as f:
-                result = f.read()
-            
-        # Cleanup
-        try:
-            if os.path.exists(req_path): os.remove(req_path)
-            if os.path.exists(res_path): os.remove(res_path)
-        except:
-            pass
-            
-        return result
-
-    # Create a temporary file to store the input
-    with tempfile.NamedTemporaryFile(mode='w+', delete=False) as tf:
-        tf_path = tf.name
-
-    # Create a temporary script to run in the external terminal
-    # This script prompts the user and writes the result to the temp file
-    input_script = f'''
-import os
-try:
-    val = input("{{prompt}}")
-    with open("{{tf_path}}", "w") as f:
-        f.write(val)
-except Exception as e:
-    pass
-'''
-    
-    with tempfile.NamedTemporaryFile(mode='w', suffix='.py', delete=False) as script_tf:
-        script_tf.write(input_script)
-        script_path = script_tf.name
-
-    # Launch external terminal
-    # Using osascript for macOS
-    cmd = f'tell application "Terminal" to do script "python3 {{script_path}}; exit"'
-    subprocess.run(['osascript', '-e', cmd], check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-
-    # Wait for the file to be written (polling)
+    # File-based coordination for all clients (Web and TUI)
     import time
-    start_time = time.time()
-    while time.time() - start_time < 300: # 5 minute timeout
+    import os
+    import tempfile
+    
+    # Define paths (using temp dir)
+    temp_dir = tempfile.gettempdir()
+    req_path = os.path.join(temp_dir, "newt_web_input_req")
+    res_path = os.path.join(temp_dir, "newt_web_input_res")
+    
+    # Clean up any stale response file
+    if os.path.exists(res_path):
         try:
-            if os.path.getsize(tf_path) > 0:
-                with open(tf_path, 'r') as f:
-                    result = f.read()
-                os.remove(tf_path)
-                os.remove(script_path)
-                return result
+            os.remove(res_path)
         except:
             pass
+
+    # Write request
+    with open(req_path, "w") as f:
+        f.write(prompt)
+        
+    # Wait for response
+    start_time = time.time()
+    while not os.path.exists(res_path):
+        if time.time() - start_time > 300: # 5 min timeout
+            break
         time.sleep(0.1)
-    
-    return ""
+        
+    # Read response
+    result = ""
+    if os.path.exists(res_path):
+        with open(res_path, "r") as f:
+            result = f.read()
+        
+    # Cleanup
+    try:
+        if os.path.exists(req_path): os.remove(req_path)
+        if os.path.exists(res_path): os.remove(res_path)
+    except:
+        pass
+        
+    return result
 
 def _newt_process_display_data(obj):
     data = {{}}
