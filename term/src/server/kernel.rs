@@ -326,6 +326,10 @@ impl NodeKernel {
         let script = r#"
 const readline = require('readline');
 const vm = require('vm');
+const fs = require('fs');
+const os = require('os');
+const path = require('path');
+
 let ts = null;
 try {
     ts = require('typescript');
@@ -356,6 +360,47 @@ const customConsole = {
     }
 };
 
+function input(promptText) {
+    promptText = promptText || "";
+    const tempDir = os.tmpdir();
+    const reqPath = path.join(tempDir, "newt_web_input_req");
+    const resPath = path.join(tempDir, "newt_web_input_res");
+
+    // Clean up stale response
+    if (fs.existsSync(resPath)) {
+        try { fs.unlinkSync(resPath); } catch(e) {}
+    }
+
+    // Write request
+    fs.writeFileSync(reqPath, promptText);
+
+    // Wait for response
+    const sab = new SharedArrayBuffer(4);
+    const int32 = new Int32Array(sab);
+    const startTime = Date.now();
+    
+    while (!fs.existsSync(resPath)) {
+        if (Date.now() - startTime > 300000) { // 5 min timeout
+            break;
+        }
+        // Sleep for 100ms
+        Atomics.wait(int32, 0, 0, 100);
+    }
+
+    let result = "";
+    if (fs.existsSync(resPath)) {
+        result = fs.readFileSync(resPath, 'utf8');
+    }
+
+    // Cleanup
+    try {
+        if (fs.existsSync(reqPath)) fs.unlinkSync(reqPath);
+        if (fs.existsSync(resPath)) fs.unlinkSync(resPath);
+    } catch(e) {}
+
+    return result;
+}
+
 const context = vm.createContext({
   console: customConsole,
   require: require,
@@ -363,7 +408,9 @@ const context = vm.createContext({
   setTimeout: setTimeout,
   setInterval: setInterval,
   clearTimeout: clearTimeout,
-  clearInterval: clearInterval
+  clearInterval: clearInterval,
+  input: input,
+  prompt: input
 });
 
 rl.on('line', (line) => {
