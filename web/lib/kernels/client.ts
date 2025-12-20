@@ -333,12 +333,65 @@ ${code}
             p.setStdin({ stdin: () => prompt("Input required:") || "" });
             
             await p.loadPackagesFromImports(code);
+
+            // Check for matplotlib usage to configure backend and capture output
+            const useMatplotlib = code.includes('matplotlib') || code.includes('plt.');
+            
+            if (useMatplotlib) {
+                await p.runPythonAsync(`
+                    try:
+                        import matplotlib
+                        matplotlib.use("Agg")
+                        import matplotlib.pyplot as plt
+                        import warnings
+                        warnings.filterwarnings("ignore", message=".*FigureCanvasAgg is non-interactive.*")
+                    except ImportError:
+                        pass
+                `);
+            }
+
             const result = await p.runPythonAsync(code);
+            
+            let display_data: any[] = [];
+            
+            if (useMatplotlib) {
+                const figures = await p.runPythonAsync(`
+                    import io, base64, json
+                    _newt_display_data = []
+                    try:
+                        import matplotlib.pyplot as plt
+                        for i in plt.get_fignums():
+                            fig = plt.figure(i)
+                            buf = io.BytesIO()
+                            fig.savefig(buf, format='png')
+                            b64 = base64.b64encode(buf.getvalue()).decode('utf-8')
+                            _newt_display_data.append({
+                                "data": {"image/png": b64},
+                                "metadata": {}
+                            })
+                            plt.close(i)
+                    except ImportError:
+                        pass
+                    json.dumps(_newt_display_data)
+                `);
+                
+                if (figures) {
+                    try {
+                        const parsed = JSON.parse(figures);
+                        if (Array.isArray(parsed)) {
+                            display_data = parsed;
+                        }
+                    } catch (e) {
+                        console.error("Failed to parse matplotlib figures", e);
+                    }
+                }
+            }
             
             return {
                 stdout: stdout + (result !== undefined ? String(result) : ""),
                 stderr: "",
-                status: 0
+                status: 0,
+                display_data: display_data.length > 0 ? display_data : undefined
             };
         } catch (e: any) {
             return {

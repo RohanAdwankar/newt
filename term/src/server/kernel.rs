@@ -170,6 +170,8 @@ def main():
         import matplotlib
         matplotlib.use('Agg')
         import matplotlib.pyplot as plt
+        import warnings
+        warnings.filterwarnings("ignore", message=".*FigureCanvasAgg is non-interactive.*")
     except ImportError:
         plt = None
 
