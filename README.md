@@ -91,6 +91,8 @@ You can customize the TUI experience using the following commands:
 
 To edit a cell in vim mode in the GUI, first press `i` once to enter the context of the cell, then use the normal vim motions to naviagate the cell, then press `i` again to enter insert mode and make changes, then press `Esc` to exit insert mode, then press `Esc` again to exit the cell context.
 
+The TUI defaults to using the oneline editor for shell commands but to open it in your default editor the f key can be used. 
+
 ### Vision
 The goal of newt is to explore an alternative approach to using the computer than basic terminals.
 

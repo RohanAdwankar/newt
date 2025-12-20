@@ -840,6 +840,77 @@ async fn run_app<B: Backend + std::io::Write>(terminal: &mut Terminal<B>, app: &
                                         app.polling_input.clear();
                                         app.polling_input.push('r');
                                     }
+                                    KeyCode::Char('f') => {
+                                        app.pending_delete = false;
+                                        if let Some(i) = app.list_state.selected() {
+                                            let cell_idx = i / 2;
+                                            let (cell_type, content) = if let Some(cell) = app.cells.get(cell_idx) {
+                                                (cell.cell_type.clone(), cell.content.clone())
+                                            } else {
+                                                continue;
+                                            };
+
+                                            let ext = match cell_type {
+                                                CellType::Rust => ".rs",
+                                                CellType::Python => ".py",
+                                                CellType::JavaScript => ".js",
+                                                CellType::TypeScript => ".ts",
+                                                CellType::C => ".c",
+                                                CellType::Cpp => ".cpp",
+                                                CellType::Go => ".go",
+                                                CellType::Shell => ".sh",
+                                                CellType::Markdown => ".md",
+                                            };
+
+                                            // Suspend TUI
+                                            let mut editor_cmd = app.editor.clone();
+                                            let is_code = editor_cmd.trim().starts_with("code");
+                                            if is_code && !editor_cmd.contains("--wait") && !editor_cmd.contains("-w") {
+                                                editor_cmd.push_str(" --wait");
+                                            }
+
+                                            if !is_code {
+                                                disable_raw_mode()?;
+                                                execute!(terminal.backend_mut(), LeaveAlternateScreen, DisableMouseCapture)?;
+                                            } else {
+                                                terminal.draw(|f| {
+                                                    let area = f.area();
+                                                    let popup_area = Rect::new(
+                                                        area.width / 2 - 25,
+                                                        area.height / 2 - 2,
+                                                        50,
+                                                        5,
+                                                    );
+                                                    f.render_widget(ratatui::widgets::Clear, popup_area);
+                                                    let block = Block::default().borders(Borders::ALL).title("External Editor");
+                                                    let text = Paragraph::new("Waiting for external editor...\nSave and close the file to return.\nOr press Enter to force return.")
+                                                        .block(block)
+                                                        .alignment(ratatui::layout::Alignment::Center);
+                                                    f.render_widget(text, popup_area);
+                                                })?;
+                                            }
+                                            
+                                            let res = open_editor(&content, ext, &editor_cmd, is_code);
+                                            
+                                            // Resume TUI
+                                            if !is_code {
+                                                execute!(terminal.backend_mut(), EnterAlternateScreen, EnableMouseCapture)?;
+                                                enable_raw_mode()?;
+                                            }
+                                            terminal.clear()?; // Force redraw
+
+                                            match res {
+                                                Ok(new_content) => {
+                                                    if let Some(cell) = app.cells.get_mut(cell_idx) {
+                                                        cell.content = new_content;
+                                                    }
+                                                }
+                                                Err(e) => {
+                                                    app.status_message = Some(format!("Editor error: {}", e));
+                                                }
+                                            }
+                                        }
+                                    }
                                     KeyCode::Char('i') => {
                                         app.pending_delete = false;
                                         // Edit current cell
