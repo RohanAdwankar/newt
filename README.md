@@ -4,9 +4,7 @@
  <M>https://rohanadwankar.github.io/newt/</M>
 </div>
 
-
-
-<add video demo here>
+https://github.com/user-attachments/assets/746afae6-2823-4bbd-92b9-4f970b31ebcd
 
 This repo is composed of a terminal inferface and a web GUI for a cross language jupyter notebook like experience.
 The TUI features allows you to create and run cells in a variety of languages including rust, go, cpp, python, and c with the fully interface having vim-like motions.
