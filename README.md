@@ -61,32 +61,35 @@ You can customize the TUI experience using the following commands:
 | Move Selection Up | `k` | `Arrow Up` |
 | Focus Sidebar | `h` | `Arrow Left` |
 | Focus Editor | `l` | `Arrow Right` |
-| Toggle Sidebar | `Space e` | (UI Button) |
+| Toggle Sidebar | `Space e` | Toolbar |
 | **Cell Operations** | | |
 | Edit Cell | `i` | `Enter` |
 | Exit Edit Mode | `Esc` | `Esc` |
 | Run Cell | `Enter` | `Shift+Enter` |
-| Add Cell Below | `o` | (UI Button) |
+| Add Cell Below | `o` | Toolbar |
 | Add Cell Above | `O` | - |
 | Delete Cell | `d` | - |
 | Copy Cell | `y` | - |
-| Paste Cell Below | `p` | - |
+| Cut Cell | - | Toolbar |
+| Paste Cell Below | `p` | Toolbar |
 | Paste Cell Above | `P` | - |
-| Toggle Fullscreen | `f` | (UI Button) |
-| Polling Mode | `r` | - |
+| Toggle Fullscreen | `f` | Toolbar |
+| Polling Mode | `r` | Toolbar or Right Click |
 | **Sidebar Operations** | | |
-| Rename File | `r` | - |
-| Copy File | `y` | - |
-| Paste File | `p` | - |
+| Rename File | `r` | Right Click |
+| Copy File | `y` | Right Click |
+| Paste File | `p` | Right Click |
+| Delete File | `d` | Right Click |
 | **Commands** | | |
 | Run All Cells | `:ra` | Run All Button |
-| Export Notebook | `:export` | Export Button |
+| Export Notebook | `:export` | Toolbar |
 | Save Notebook | `:w` | Save Button |
 | Quit / Close | `:q` | - |
-| Change Language | `:rust`, `:py`, `:ts`, `:js`, `:cpp`, `:c` | Dropdown |
+| Change Language | `:rust`, `:py`, `:ts`, `:js`, `:cpp`, `:c` | Toolbar |
 | Set Editor | `:editor <cmd>` | - |
 | Set Accent Color | `:color <index>` | - |
 
+To edit a cell in vim mode in the GUI, first press `i` once to enter the context of the cell, then use the normal vim motions to naviagate the cell, then press `i` again to enter insert mode and make changes, then press `Esc` to exit insert mode, then press `Esc` again to exit the cell context.
 
 ### Vision
 The goal of newt is to explore an alternative approach to using the computer than basic terminals.
