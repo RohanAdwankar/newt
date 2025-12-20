@@ -864,15 +864,40 @@ async fn run_app<B: Backend + std::io::Write>(terminal: &mut Terminal<B>, app: &
                                                     };
                                                     
                                                     // Suspend TUI
-                                                    disable_raw_mode()?;
-                                                    execute!(terminal.backend_mut(), LeaveAlternateScreen)?;
+                                                    let mut editor_cmd = app.editor.clone();
+                                                    let is_code = editor_cmd.trim().starts_with("code");
+                                                    if is_code && !editor_cmd.contains("--wait") && !editor_cmd.contains("-w") {
+                                                        editor_cmd.push_str(" --wait");
+                                                    }
+
+                                                    if !is_code {
+                                                        disable_raw_mode()?;
+                                                        execute!(terminal.backend_mut(), LeaveAlternateScreen, DisableMouseCapture)?;
+                                                    } else {
+                                                        terminal.draw(|f| {
+                                                            let area = f.area();
+                                                            let popup_area = Rect::new(
+                                                                area.width / 2 - 25,
+                                                                area.height / 2 - 2,
+                                                                50,
+                                                                5,
+                                                            );
+                                                            f.render_widget(ratatui::widgets::Clear, popup_area);
+                                                            let block = Block::default().borders(Borders::ALL).title("External Editor");
+                                                            let text = Paragraph::new("Waiting for external editor...\nSave and close the file to return.\nOr press Enter to force return.")
+                                                                .block(block)
+                                                                .alignment(ratatui::layout::Alignment::Center);
+                                                            f.render_widget(text, popup_area);
+                                                        })?;
+                                                    }
                                                     
-                                                    let editor_cmd = app.editor.clone();
-                                                    let res = open_editor(&content, ext, &editor_cmd);
+                                                    let res = open_editor(&content, ext, &editor_cmd, is_code);
                                                     
                                                     // Resume TUI
-                                                    execute!(terminal.backend_mut(), EnterAlternateScreen)?;
-                                                    enable_raw_mode()?;
+                                                    if !is_code {
+                                                        execute!(terminal.backend_mut(), EnterAlternateScreen, EnableMouseCapture)?;
+                                                        enable_raw_mode()?;
+                                                    }
                                                     terminal.clear()?; // Force redraw
 
                                                     match res {
@@ -1293,19 +1318,44 @@ async fn run_app<B: Backend + std::io::Write>(terminal: &mut Terminal<B>, app: &
                             };
 
                             if let Some(cell_type) = new_type {
-                                let editor_cmd = app.editor.clone();
+                                let mut editor_cmd = app.editor.clone();
+                                let is_code = editor_cmd.trim().starts_with("code");
+                                if is_code && !editor_cmd.contains("--wait") && !editor_cmd.contains("-w") {
+                                    editor_cmd.push_str(" --wait");
+                                }
+
                                 if let Some(cell) = app.current_cell_mut() {
                                     cell.cell_type = cell_type;
                                     cell.content = String::new(); // Clear input
                                     
                                     // Open editor
-                                    disable_raw_mode()?;
-                                    execute!(terminal.backend_mut(), LeaveAlternateScreen)?;
+                                    if !is_code {
+                                        disable_raw_mode()?;
+                                        execute!(terminal.backend_mut(), LeaveAlternateScreen, DisableMouseCapture)?;
+                                    } else {
+                                        terminal.draw(|f| {
+                                            let area = f.area();
+                                            let popup_area = Rect::new(
+                                                area.width / 2 - 25,
+                                                area.height / 2 - 2,
+                                                50,
+                                                5,
+                                            );
+                                            f.render_widget(ratatui::widgets::Clear, popup_area);
+                                            let block = Block::default().borders(Borders::ALL).title("External Editor");
+                                            let text = Paragraph::new("Waiting for external editor...\nSave and close the file to return.\nOr press Enter to force return.")
+                                                .block(block)
+                                                .alignment(ratatui::layout::Alignment::Center);
+                                            f.render_widget(text, popup_area);
+                                        })?;
+                                    }
                                     
-                                    let res = open_editor(&cell.content, ext, &editor_cmd);
+                                    let res = open_editor(&cell.content, ext, &editor_cmd, is_code);
                                     
-                                    execute!(terminal.backend_mut(), EnterAlternateScreen)?;
-                                    enable_raw_mode()?;
+                                    if !is_code {
+                                        execute!(terminal.backend_mut(), EnterAlternateScreen, EnableMouseCapture)?;
+                                        enable_raw_mode()?;
+                                    }
                                     terminal.clear()?;
 
                                     match res {
@@ -1495,7 +1545,7 @@ async fn run_app<B: Backend + std::io::Write>(terminal: &mut Terminal<B>, app: &
     // Ok(()) // Unreachable
 }
 
-fn open_editor(content: &str, extension: &str, editor_cmd: &str) -> io::Result<String> {
+fn open_editor(content: &str, extension: &str, editor_cmd: &str, interactive_wait: bool) -> io::Result<String> {
     let mut file = tempfile::Builder::new()
         .suffix(extension)
         .tempfile()?;
@@ -1522,13 +1572,34 @@ fn open_editor(content: &str, extension: &str, editor_cmd: &str) -> io::Result<S
 
     let args = &parts[1..];
     
-    let status = Command::new(program)
+    let mut child = Command::new(program)
         .args(args)
         .arg(&path)
-        .status()?;
+        .spawn()?;
         
-    if !status.success() {
-        return Err(io::Error::new(io::ErrorKind::Other, "Editor exited with error"));
+    if interactive_wait {
+        loop {
+            match child.try_wait() {
+                Ok(Some(_)) => break,
+                Ok(None) => {
+                    if event::poll(std::time::Duration::from_millis(100))? {
+                        if let Event::Key(key) = event::read()? {
+                            if key.code == KeyCode::Enter {
+                                // User forced return
+                                let _ = child.kill();
+                                break;
+                            }
+                        }
+                    }
+                }
+                Err(e) => return Err(e),
+            }
+        }
+    } else {
+        let status = child.wait()?;
+        if !status.success() {
+            return Err(io::Error::new(io::ErrorKind::Other, "Editor exited with error"));
+        }
     }
     
     let new_content = std::fs::read_to_string(&path)?;
