@@ -93,12 +93,23 @@ export class ClientKernel implements Kernel {
             this.clangPort.start();
 
             // Setup SharedArrayBuffer for synchronous input
-            const sab = new SharedArrayBuffer(1024);
-            const int32 = new Int32Array(sab);
+            let sab: SharedArrayBuffer | undefined;
+            let int32: Int32Array | undefined;
+
+            if (typeof SharedArrayBuffer !== 'undefined') {
+                try {
+                    sab = new SharedArrayBuffer(1024);
+                    int32 = new Int32Array(sab);
+                } catch (e) {
+                    console.warn("SharedArrayBuffer not available, synchronous input will be disabled:", e);
+                }
+            }
 
             this.clangPort.addEventListener('message', (e) => {
                 const msg = e.data;
                 if (msg.id === 'input_request') {
+                    if (!sab || !int32) return;
+
                     const input = prompt(msg.msg || "Input required:");
                     if (input === null) {
                         Atomics.store(int32, 1, -1);
@@ -110,11 +121,6 @@ export class ClientKernel implements Kernel {
                         uint8.set(bytes.subarray(0, len));
                         Atomics.store(int32, 1, len);
                     }
-                    Atomics.store(int32, 0, 0); // Reset status to 0 (IDLE) - wait, worker sets it to 0.
-                    // Worker waits for 1. We should set it to something else?
-                    // Worker: store(0, 1), wait(0, 1).
-                    // Main: store(0, 0), notify(0).
-                    // Worker wakes up, sees 0.
                     
                     Atomics.store(int32, 0, 0);
                     Atomics.notify(int32, 0);
