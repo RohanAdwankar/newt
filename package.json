@@ -1,0 +1,11 @@
+{
+  "name": "newt-root",
+  "private": true,
+  "scripts": {
+    "dev": "npm run dev --prefix web",
+    "build": "npm run build --prefix web",
+    "start": "npm run start --prefix web",
+    "test": "npm run test --prefix web",
+    "lint": "npm run lint --prefix web"
+  }
+}
