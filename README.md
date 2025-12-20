@@ -1,8 +1,5 @@
 <div align="center">
  <img width="600" height="160" class="center" alt="newt" src="https://github.com/user-attachments/assets/4c881e5a-6350-4a46-9ff0-e9793b5d1a2f"/>
- <p>newt - a new terminal</p>
-</div>
-
 <table>
   <tr>
     <td width="50%">
@@ -13,26 +10,23 @@
     </td>
   </tr>
 </table>
+</div>
 
 
-
-This repo is composed of a terminal inferface and a web GUI for a cross language jupyter notebook like experience.
-The TUI features allows you to create and run cells in a variety of languages including rust, go, cpp, python, and c with the fully interface having vim-like motions.
-The GUI is a static site which allows you to run some supported languages client side in WASM (js,ts,py,c++) as well as an option to connect to a server for the remaining languages.
-The Server is an option for the terminal or the GUI in server mode which operates the core code execution kernel.
+Newt offers a TUI and web GUI for a cross language jupyter notebook like experience.
+The TUI can run cells in a variety of languages including rust, go, c++, python, and javscript while navigating the notebook in efficient vim-esque motions.
+The GUI is a static site which allows you to run supported languages client side in WASM (js,ts,py,c++) as well as an option to connect to a local server for the remaining languages.
 
 ## Web GUI
 
 ### Client Side Mode
-The goal of client side mode is to run code directly in the browser using WASM.
-This means nothing is sent anywhere externally nor to a server running on your machine, just ran in the browser.
-Currently supported languages are: js, ts, py, cpp
-Files and preferences are saved to localstorage.
+The goal of client side mode is to run code directly in the browser using WASM without sending anything to external servers. It currently supports python, c++, and javascript/typescript. It also supports storing files and preferences in localstorage in your browser.
+To use the static site go to:
+
+https://rohanadwankar.github.io/newt/
 
 ### Server Side Mode
-To enable server side mode activate the server and connect to it from the GUI.
-To use the main site you will have to enable "Local network access" in your browser settings to the left of the url.
-When the server is connected you can also interact with newt notebooks saved to applications files.
+The goal of server side mode is for users who would like to use the GUI but need the features of the local server (ie full language support). When the server is connected you can also interact with newt notebooks saved to applications files.
 To install the server via cargo:
 ```bash
 cargo install newts
@@ -41,11 +35,9 @@ To start the server run:
 ```bash
 newts --serve
 ```
+Then go to the main site and enable "Local network access" in your browser settings to the left of the url, and choose `Server` mode in the toolbar.
 
 ## TUI
-To run the TUI first start the server then start the TUI client.
-Notebooks are saved to applications files.
-The TUI will automatically start the server if it is not running.
 To install the TUI via cargo:
 ```bash
 cargo install newts
@@ -56,9 +48,8 @@ newts
 ```
 
 ### Customization
-You can customize the TUI experience using the following commands:
-- External Editor: Set your preferred external editor (e.g., `vim`, `nano`, `code`) using `:editor <command>`. This setting is persistent. You can also pass the editor program directly such as `:editor ~/nvim-macos-arm64/bin/nvim`
-- Accent Color: Change the UI accent color using `:color <index>`, where `<index>` is a number from 0-255 representing a color from the 256-color palette. For example, `:color 40` sets it to green. To view the color options check the [ratatui docs](https://ratatui.rs/examples/style/colors/)
+- External Editor: Set your preferred external editor (e.g., `vim`, `nano`, `code`) using `:editor <command>`. You can also pass the editor program directly such as `:editor ~/nvim-macos-arm64/bin/nvim`
+- Accent Color: Change the UI accent color using `:color <index>`, where `<index>` is a number from 0-255 representing a color from the 256-color palette. For example, `:color 40` sets it to green. To view the color options check the [ratatui docs.](https://ratatui.rs/examples/style/colors/)
  
 ## Keybindings & Actions
 
@@ -99,26 +90,25 @@ You can customize the TUI experience using the following commands:
 
 To edit a cell in vim mode in the GUI, first press `i` once to enter the context of the cell, then use the normal vim motions to naviagate the cell, then press `i` again to enter insert mode and make changes, then press `Esc` to exit insert mode, then press `Esc` again to exit the cell context.
 
-The TUI defaults to using the oneline editor for shell commands but to open it in your default editor the f key can be used. 
+The TUI defaults to using the oneline editor for shell commands but to open it in your default editor the `f` key can be used. 
 
 ### Vision
-The goal of newt is to explore an alternative approach to using the computer than basic terminals.
+The names stands for $$\textsf{{\color{green}new} {\color{green}t}erminal}$$ and the broader goal of newt is to explore an alternative approach to using the computer than basic terminals.
 
-The core form factor is a jupyter notebook like experience with vim motions but the goal is to creatively analyze how we interact with terminals and develop a better develop experience. 
+The core form factor is a jupyter notebook like experience with vim motions but the goal is to creatively analyze how we interact with terminals and develop a better developer experience. 
 Here is a running list of usecases I am targetting.
 
 #### Declarative Developer Environments
 
-For example say the user wants to do a task they would typically do in a terminal:
+For example when developing [oxdraw](https://github.com/RohanAdwankar/oxdraw), because there is a Next.js site and a Rust program serving it, I was running this same sequence for every change I made:
 ```
 cd frontend
 npm run build
 cd ..
 cargo run 
 ```
-So in this case you are typing the same thing consistently.
-However this is simple enough that it is not worth making another script for it
-So when using a newt notebook you can have a cell where you have this: 
+This is annoyingly repetitive, however it was simple enough that it was not worth making another script for it.
+But when using a newt notebook you can have a cell where you have this: 
 ```
 cd ~/foo/frontend
 npm run build
@@ -130,7 +120,7 @@ Then perhaps a cell with your editor:
 ```
 vi .
 ```
-So the full developer environment is declaritively defined in cells.
+So the full developer environment is declaritively defined in cells and the developer doesn't have to worry about making scripts for everything because recurring actions will already be in the previous cells.
 
 #### Experimentation
 
@@ -139,7 +129,7 @@ Then after I figure out how the APIs work I move them into the actual applicatio
 This appraoch is very inefficient because then when 2 weeks later I want to understand the APIs I do not have that terminal session. Even if I saved it to a text file it is littered in junk from bad API calls. 
 Also when I parse with jq I replicate the curl which means excessive requests.
 With newt its easy to write the curls or even write snippets of code in other languages and have these notes saved in your developer environment.
-To improve this a new feature could be a tool in the output section for JSON formatting and parsing.
+To improve this usecase a new feature could be a tool in the output section for JSON formatting and parsing.
 
 #### Learning New Languages
 
@@ -147,8 +137,9 @@ When I was learning python the fastest way for me to get up to speed was to use 
 
 #### Cloud
 
-Google Colab is a fantastic service because it enables you to easily swap between runtimes (eg. different GPUs/TPUs). However, for obvious reasons it will not allow using alternative runtimes from different clouds.
+Google Colab is a fantastic service because it enables you to easily swap between runtimes (eg. different CPUs/GPUs). However, for obvious reasons it will not allow using alternative runtimes from different clouds.
 Therefore one of the eventual visions is for each cell to be able to specify the cloud runtime.
 This makes it easy to experiment with different cloud providers and hardware, as well as use the cheapest runtime available to you.
 Currently the possible runtime options are client side (WASM) and server side (local server).
-Adding a cloud option will require a new hosted version of the site with auth and billing which should be a cheaper option for people who need GPU accelerated notebooks.
+Adding a cloud option will require a new hosted version of the site with auth which should be a cheaper option for people who need GPU accelerated notebooks as costs and free tiers can be arbitraged across clouds.
+If this interests you feel free to drop your email [here](https://forms.gle/RBgxjkPhrQ4NTbit7). 
