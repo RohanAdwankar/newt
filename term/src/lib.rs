@@ -5,7 +5,7 @@ use crossterm::{
     execute,
     terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
 };
-use directories::ProjectDirs;
+use directories::{ProjectDirs, UserDirs};
 use ratatui::{
     backend::{Backend, CrosstermBackend},
     layout::{Constraint, Direction, Layout, Rect},
@@ -139,6 +139,7 @@ pub struct App {
     pub popup_input: String,
     pub popup_prompt: String,
     pub overwrite_path: Option<PathBuf>,
+    pub editor: String,
 }
 
 #[derive(PartialEq)]
@@ -184,7 +185,10 @@ impl App {
             popup_input: String::new(),
             popup_prompt: String::new(),
             overwrite_path: None,
+            editor: std::env::var("EDITOR").unwrap_or_else(|_| "vi".to_string()),
         };
+
+        app.load_config();
 
         // Always refresh file list for sidebar
         app.refresh_file_list();
@@ -394,6 +398,35 @@ impl App {
     fn update_cell_output(&mut self, index: usize, output: String) {
         if let Some(cell) = self.cells.get_mut(index) {
             cell.output = output;
+        }
+    }
+
+    fn load_config(&mut self) {
+        let mut path = get_app_dir();
+        path.push("config.json");
+        if let Ok(content) = fs::read_to_string(&path) {
+            if let Ok(config) = serde_json::from_str::<server::Config>(&content) {
+                if let Some(editor) = config.editor {
+                    self.editor = editor;
+                }
+            }
+        }
+    }
+
+    fn save_config(&self) {
+        let mut path = get_app_dir();
+        path.push("config.json");
+        
+        let mut config = if let Ok(content) = fs::read_to_string(&path) {
+            serde_json::from_str::<server::Config>(&content).unwrap_or_default()
+        } else {
+            server::Config::default()
+        };
+        
+        config.editor = Some(self.editor.clone());
+        
+        if let Ok(json) = serde_json::to_string_pretty(&config) {
+            let _ = fs::write(path, json);
         }
     }
 }
@@ -804,40 +837,52 @@ async fn run_app<B: Backend + std::io::Write>(terminal: &mut Terminal<B>, app: &
                                         // Edit current cell
                                         if let Some(i) = app.list_state.selected() {
                                             let cell_idx = i / 2;
-                                            if let Some(cell) = app.cells.get(cell_idx) {
-                                                match cell.cell_type {
-                                                    CellType::Shell => {
-                                                        app.input = cell.content.clone();
-                                                        app.input_mode = InputMode::Editing;
-                                                    }
-                                                    _ => {
-                                                        // Open editor for all code cells
-                                                        let content = cell.content.clone();
-                                                        let ext = match cell.cell_type {
-                                                            CellType::Rust => ".rs",
-                                                            CellType::Python => ".py",
-                                                            CellType::JavaScript => ".js",
-                                                            CellType::TypeScript => ".ts",
-                                                            CellType::C => ".c",
-                                                            CellType::Cpp => ".cpp",
-                                                            CellType::Go => ".go",
-                                                            CellType::Shell => ".sh",
-                                                            CellType::Markdown => ".md",
-                                                        };
-                                                        
-                                                        // Suspend TUI
-                                                        disable_raw_mode()?;
-                                                        execute!(terminal.backend_mut(), LeaveAlternateScreen)?;
-                                                        
-                                                        let new_content = open_editor(&content, ext)?;
-                                                        
-                                                        // Resume TUI
-                                                        execute!(terminal.backend_mut(), EnterAlternateScreen)?;
-                                                        enable_raw_mode()?;
-                                                        terminal.clear()?; // Force redraw
+                                            // Clone needed data to avoid holding borrow
+                                            let (cell_type, content) = if let Some(cell) = app.cells.get(cell_idx) {
+                                                (cell.cell_type.clone(), cell.content.clone())
+                                            } else {
+                                                continue;
+                                            };
 
-                                                        if let Some(cell) = app.current_cell_mut() {
-                                                            cell.content = new_content;
+                                            match cell_type {
+                                                CellType::Shell => {
+                                                    app.input = content;
+                                                    app.input_mode = InputMode::Editing;
+                                                }
+                                                _ => {
+                                                    // Open editor for all code cells
+                                                    let ext = match cell_type {
+                                                        CellType::Rust => ".rs",
+                                                        CellType::Python => ".py",
+                                                        CellType::JavaScript => ".js",
+                                                        CellType::TypeScript => ".ts",
+                                                        CellType::C => ".c",
+                                                        CellType::Cpp => ".cpp",
+                                                        CellType::Go => ".go",
+                                                        CellType::Shell => ".sh",
+                                                        CellType::Markdown => ".md",
+                                                    };
+                                                    
+                                                    // Suspend TUI
+                                                    disable_raw_mode()?;
+                                                    execute!(terminal.backend_mut(), LeaveAlternateScreen)?;
+                                                    
+                                                    let editor_cmd = app.editor.clone();
+                                                    let res = open_editor(&content, ext, &editor_cmd);
+                                                    
+                                                    // Resume TUI
+                                                    execute!(terminal.backend_mut(), EnterAlternateScreen)?;
+                                                    enable_raw_mode()?;
+                                                    terminal.clear()?; // Force redraw
+
+                                                    match res {
+                                                        Ok(new_content) => {
+                                                            if let Some(cell) = app.current_cell_mut() {
+                                                                cell.content = new_content;
+                                                            }
+                                                        }
+                                                        Err(e) => {
+                                                            app.status_message = Some(format!("Editor error: {}", e));
                                                         }
                                                     }
                                                 }
@@ -1016,6 +1061,15 @@ async fn run_app<B: Backend + std::io::Write>(terminal: &mut Terminal<B>, app: &
                                     app.input_mode = InputMode::Normal;
                                     app.command_input.clear();
                                 }
+                            } else if cmd.starts_with("editor ") {
+                                let editor = cmd[7..].trim().to_string();
+                                if !editor.is_empty() {
+                                    app.editor = editor.clone();
+                                    app.save_config();
+                                    app.status_message = Some(format!("Editor set to {}", editor));
+                                }
+                                app.input_mode = InputMode::Normal;
+                                app.command_input.clear();
                             } else {
                                 match app.command_input.as_str() {
                                 "q" => return Ok(()),
@@ -1239,6 +1293,7 @@ async fn run_app<B: Backend + std::io::Write>(terminal: &mut Terminal<B>, app: &
                             };
 
                             if let Some(cell_type) = new_type {
+                                let editor_cmd = app.editor.clone();
                                 if let Some(cell) = app.current_cell_mut() {
                                     cell.cell_type = cell_type;
                                     cell.content = String::new(); // Clear input
@@ -1247,14 +1302,22 @@ async fn run_app<B: Backend + std::io::Write>(terminal: &mut Terminal<B>, app: &
                                     disable_raw_mode()?;
                                     execute!(terminal.backend_mut(), LeaveAlternateScreen)?;
                                     
-                                    let new_content = open_editor(&cell.content, ext)?;
+                                    let res = open_editor(&cell.content, ext, &editor_cmd);
                                     
                                     execute!(terminal.backend_mut(), EnterAlternateScreen)?;
                                     enable_raw_mode()?;
                                     terminal.clear()?;
 
-                                    cell.content = new_content;
-                                    app.input_mode = InputMode::Normal; 
+                                    match res {
+                                        Ok(new_content) => {
+                                            cell.content = new_content;
+                                            app.input_mode = InputMode::Normal; 
+                                        }
+                                        Err(e) => {
+                                            app.status_message = Some(format!("Editor error: {}", e));
+                                            app.input_mode = InputMode::Normal;
+                                        }
+                                    } 
                                 }
                             } else {
                                 // Run the cell
@@ -1432,18 +1495,35 @@ async fn run_app<B: Backend + std::io::Write>(terminal: &mut Terminal<B>, app: &
     // Ok(()) // Unreachable
 }
 
-fn open_editor(content: &str, extension: &str) -> io::Result<String> {
-    let editor = std::env::var("EDITOR").unwrap_or_else(|_| "vi".to_string());
-    
+fn open_editor(content: &str, extension: &str, editor_cmd: &str) -> io::Result<String> {
     let mut file = tempfile::Builder::new()
         .suffix(extension)
         .tempfile()?;
         
     write!(file, "{}", content)?;
+    file.flush()?;
     
     let path = file.path().to_str().unwrap().to_string();
     
-    let status = Command::new(&editor)
+    // Split command into program and args
+    let parts: Vec<&str> = editor_cmd.split_whitespace().collect();
+    if parts.is_empty() {
+        return Err(io::Error::new(io::ErrorKind::InvalidInput, "Empty editor command"));
+    }
+    
+    let mut program = parts[0].to_string();
+    // Expand ~ to home directory
+    if program.starts_with("~/") {
+        if let Some(user_dirs) = UserDirs::new() {
+            let home = user_dirs.home_dir().to_string_lossy();
+            program = program.replace("~", &home);
+        }
+    }
+
+    let args = &parts[1..];
+    
+    let status = Command::new(program)
+        .args(args)
         .arg(&path)
         .status()?;
         

@@ -555,9 +555,10 @@ pub async fn run_server() {
     }
 }
 
-#[derive(Serialize, Deserialize, Default, Debug)]
+#[derive(Serialize, Deserialize, Default, Debug, Clone)]
 pub struct Config {
     pub theme: Option<String>,
+    pub editor: Option<String>,
 }
 
 pub async fn get_config() -> Json<Config> {
@@ -581,6 +582,9 @@ pub async fn update_config(Json(config): Json<Config>) -> Json<String> {
         if let Ok(existing) = serde_json::from_str::<Config>(&content) {
             if final_config.theme.is_none() {
                 final_config.theme = existing.theme;
+            if final_config.editor.is_none() {
+                final_config.editor = existing.editor;
+            }
             }
         }
     }
