@@ -140,6 +140,7 @@ pub struct App {
     pub popup_prompt: String,
     pub overwrite_path: Option<PathBuf>,
     pub editor: String,
+    pub accent_color: Color,
 }
 
 #[derive(PartialEq)]
@@ -186,6 +187,7 @@ impl App {
             popup_prompt: String::new(),
             overwrite_path: None,
             editor: std::env::var("EDITOR").unwrap_or_else(|_| "vi".to_string()),
+            accent_color: Color::Indexed(40),
         };
 
         app.load_config();
@@ -409,6 +411,9 @@ impl App {
                 if let Some(editor) = config.editor {
                     self.editor = editor;
                 }
+                if let Some(color_index) = config.accent_color {
+                    self.accent_color = Color::Indexed(color_index);
+                }
             }
         }
     }
@@ -424,6 +429,9 @@ impl App {
         };
         
         config.editor = Some(self.editor.clone());
+        if let Color::Indexed(i) = self.accent_color {
+            config.accent_color = Some(i);
+        }
         
         if let Ok(json) = serde_json::to_string_pretty(&config) {
             let _ = fs::write(path, json);
@@ -1095,6 +1103,17 @@ async fn run_app<B: Backend + std::io::Write>(terminal: &mut Terminal<B>, app: &
                                 }
                                 app.input_mode = InputMode::Normal;
                                 app.command_input.clear();
+                            } else if cmd.starts_with("color ") {
+                                let color_str = cmd[6..].trim();
+                                if let Ok(color_idx) = color_str.parse::<u8>() {
+                                    app.accent_color = Color::Indexed(color_idx);
+                                    app.save_config();
+                                    app.status_message = Some(format!("Accent color set to {}", color_idx));
+                                } else {
+                                    app.status_message = Some("Invalid color index".to_string());
+                                }
+                                app.input_mode = InputMode::Normal;
+                                app.command_input.clear();
                             } else {
                                 match app.command_input.as_str() {
                                 "q" => return Ok(()),
@@ -1667,14 +1686,14 @@ fn ui(f: &mut Frame, app: &App) {
         }
         
         let border_style = if app.focus == Focus::Sidebar {
-            Style::default().fg(Color::Yellow)
+            Style::default().fg(app.accent_color)
         } else {
             Style::default()
         };
 
         let list = List::new(items)
             .block(Block::default().borders(Borders::RIGHT).border_style(border_style))
-            .highlight_style(Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD));
+            .highlight_style(Style::default().fg(app.accent_color).add_modifier(Modifier::BOLD));
             
         f.render_stateful_widget(list, sidebar_area, &mut app.file_list_state.clone());
     }
@@ -1714,7 +1733,7 @@ fn ui(f: &mut Frame, app: &App) {
         };
 
         let style = if Some(i * 2) == app.list_state.selected() && app.focus == Focus::Editor {
-            Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)
+            Style::default().fg(app.accent_color).add_modifier(Modifier::BOLD)
         } else {
             Style::default()
         };
@@ -1792,7 +1811,7 @@ fn ui(f: &mut Frame, app: &App) {
 
         // Output Item
         let output_style = if Some(i * 2 + 1) == app.list_state.selected() && app.focus == Focus::Editor {
-            Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)
+            Style::default().fg(app.accent_color).add_modifier(Modifier::BOLD)
         } else {
             Style::default()
         };
@@ -1831,7 +1850,7 @@ fn ui(f: &mut Frame, app: &App) {
                         f.render_widget(ratatui::widgets::Clear, input_area);
                         
                         let input_block = Paragraph::new(app.input.as_str())
-                            .style(Style::default().fg(Color::Yellow))
+                            .style(Style::default().fg(app.accent_color))
                             .block(Block::default().borders(Borders::ALL).title("Input"));
                         f.render_widget(input_block, input_area);
                     }
@@ -1871,7 +1890,7 @@ fn ui(f: &mut Frame, app: &App) {
             let popup_area = Rect::new(area.width / 2 - 20, area.height / 2 - 1, 40, 3);
             f.render_widget(ratatui::widgets::Clear, popup_area);
             let input_block = Paragraph::new(app.rename_input.as_str())
-                .style(Style::default().fg(Color::Yellow))
+                .style(Style::default().fg(app.accent_color))
                 .block(Block::default().borders(Borders::ALL).title("Rename File"));
             f.render_widget(input_block, popup_area);
         }
@@ -1894,7 +1913,7 @@ fn ui(f: &mut Frame, app: &App) {
                 .split(inner_area);
                 
             let prompt = Paragraph::new(app.popup_prompt.as_str());
-            let input = Paragraph::new(app.popup_input.as_str()).style(Style::default().fg(Color::Yellow));
+            let input = Paragraph::new(app.popup_input.as_str()).style(Style::default().fg(app.accent_color));
             
             f.render_widget(block, popup_area);
             f.render_widget(prompt, chunks[0]);

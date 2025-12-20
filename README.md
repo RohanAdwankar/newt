@@ -46,6 +46,11 @@ Then you can run it with:
 ```bash
 newts
 ```
+
+### Customization
+You can customize the TUI experience using the following commands:
+- External Editor: Set your preferred external editor (e.g., `vim`, `nano`, `code`) using `:editor <command>`. This setting is persistent. You can also pass the editor program directly such as `:editor ~/nvim-macos-arm64/bin/nvim`
+- Accent Color: Change the UI accent color using `:color <index>`, where `<index>` is a number from 0-255 representing a color from the 256-color palette. For example, `:color 40` sets it to green. To view the color options check the [ratatui docs](https://ratatui.rs/examples/style/colors/)
  
 ## Keybindings & Actions
 
@@ -79,6 +84,8 @@ newts
 | Save Notebook | `:w` | Save Button |
 | Quit / Close | `:q` | - |
 | Change Language | `:rust`, `:py`, `:ts`, `:js`, `:cpp`, `:c` | Dropdown |
+| Set Editor | `:editor <cmd>` | - |
+| Set Accent Color | `:color <index>` | - |
 
 
 ### Vision

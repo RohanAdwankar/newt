@@ -559,6 +559,7 @@ pub async fn run_server() {
 pub struct Config {
     pub theme: Option<String>,
     pub editor: Option<String>,
+    pub accent_color: Option<u8>,
 }
 
 pub async fn get_config() -> Json<Config> {
@@ -582,9 +583,12 @@ pub async fn update_config(Json(config): Json<Config>) -> Json<String> {
         if let Ok(existing) = serde_json::from_str::<Config>(&content) {
             if final_config.theme.is_none() {
                 final_config.theme = existing.theme;
+            }
             if final_config.editor.is_none() {
                 final_config.editor = existing.editor;
             }
+            if final_config.accent_color.is_none() {
+                final_config.accent_color = existing.accent_color;
             }
         }
     }
