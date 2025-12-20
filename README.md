@@ -1,10 +1,20 @@
 <div align="center">
  <img width="600" height="160" class="center" alt="newt" src="https://github.com/user-attachments/assets/4c881e5a-6350-4a46-9ff0-e9793b5d1a2f"/>
  <p>newt - a new terminal</p>
- <M>https://rohanadwankar.github.io/newt/</M>
 </div>
 
-https://github.com/user-attachments/assets/746afae6-2823-4bbd-92b9-4f970b31ebcd
+<table>
+  <tr>
+    <td width="50%">
+        <video src="https://github.com/user-attachments/assets/746afae6-2823-4bbd-92b9-4f970b31ebcd"></video>
+    </td>
+    <td width="50%">
+        <video src="https://github.com/user-attachments/assets/57b53b02-eb1d-4c13-a46c-121ee3946b71"></video>
+    </td>
+  </tr>
+</table>
+
+
 
 This repo is composed of a terminal inferface and a web GUI for a cross language jupyter notebook like experience.
 The TUI features allows you to create and run cells in a variety of languages including rust, go, cpp, python, and c with the fully interface having vim-like motions.
