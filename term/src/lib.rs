@@ -140,6 +140,7 @@ pub struct App {
     pub focus: Focus,
     pub clipboard_cell: Option<Cell>,
     pub clipboard_file: Option<PathBuf>,
+    pub clipboard_output: Option<String>,
     pub status_message: Option<String>,
     pub rename_input: String,
     pub polling_input: String,
@@ -189,6 +190,7 @@ impl App {
             focus: Focus::Editor,
             clipboard_cell: None,
             clipboard_file: None,
+            clipboard_output: None,
             status_message: None,
             rename_input: String::new(),
             polling_input: String::new(),
@@ -978,6 +980,16 @@ async fn run_app<B: Backend + std::io::Write>(terminal: &mut Terminal<B>, app: &
                                             }
                                         }
                                     }
+                                    KeyCode::Char('Y') => {
+                                        if let Some(i) = app.list_state.selected() {
+                                            if let Some(&cell_idx) = visual_items.get(i) {
+                                                if let Some(cell) = app.cells.get(cell_idx) {
+                                                    app.clipboard_output = Some(cell.output.clone());
+                                                    app.status_message = Some("Output yanked".to_string());
+                                                }
+                                            }
+                                        }
+                                    }
                                     KeyCode::Char('p') => {
                                         if let Some(cell) = &app.clipboard_cell {
                                             if let Some(i) = app.list_state.selected() {
@@ -1214,6 +1226,73 @@ async fn run_app<B: Backend + std::io::Write>(terminal: &mut Terminal<B>, app: &
                                                         }
                                                     }
                                                 }
+                                            }
+                                        }
+                                    }
+                                    KeyCode::Char('I') => {
+                                        app.pending_delete = false;
+                                        // View output in editor (read-only, changes discarded)
+                                        if let Some(i) = app.list_state.selected() {
+                                            if let Some(&cell_idx) = visual_items.get(i) {
+                                                // Clone the output to view
+                                                let (cell_type, output) = if let Some(cell) = app.cells.get(cell_idx) {
+                                                    (cell.cell_type.clone(), cell.output.clone())
+                                                } else {
+                                                    continue;
+                                                };
+
+                                                // Determine file extension for syntax highlighting
+                                                let ext = match cell_type {
+                                                    CellType::Rust => ".rs",
+                                                    CellType::Python => ".py",
+                                                    CellType::JavaScript => ".js",
+                                                    CellType::TypeScript => ".ts",
+                                                    CellType::C => ".c",
+                                                    CellType::Cpp => ".cpp",
+                                                    CellType::Go => ".go",
+                                                    CellType::Shell => ".sh",
+                                                    CellType::Markdown => ".md",
+                                                };
+
+                                                // Suspend TUI
+                                                let mut editor_cmd = app.editor.clone();
+                                                let is_code = editor_cmd.trim().starts_with("code");
+                                                if is_code && !editor_cmd.contains("--wait") && !editor_cmd.contains("-w") {
+                                                    editor_cmd.push_str(" --wait");
+                                                }
+
+                                                if !is_code {
+                                                    disable_raw_mode()?;
+                                                    execute!(terminal.backend_mut(), LeaveAlternateScreen, DisableMouseCapture)?;
+                                                } else {
+                                                    terminal.draw(|f| {
+                                                        let area = f.area();
+                                                        let popup_area = Rect::new(
+                                                            area.width / 2 - 25,
+                                                            area.height / 2 - 2,
+                                                            50,
+                                                            5,
+                                                        );
+                                                        f.render_widget(ratatui::widgets::Clear, popup_area);
+                                                        let block = Block::default().borders(Borders::ALL).title("Viewing Output");
+                                                        let text = Paragraph::new("Viewing output in external editor...\nChanges will be discarded.\nOr press Enter to force return.")
+                                                            .block(block)
+                                                            .alignment(ratatui::layout::Alignment::Center);
+                                                        f.render_widget(text, popup_area);
+                                                    })?;
+                                                }
+
+                                                // Open editor with output (result is discarded)
+                                                let _res = open_editor(&output, ext, &editor_cmd, is_code);
+
+                                                // Resume TUI
+                                                if !is_code {
+                                                    execute!(terminal.backend_mut(), EnterAlternateScreen, EnableMouseCapture)?;
+                                                    enable_raw_mode()?;
+                                                }
+                                                terminal.clear()?; // Force redraw
+
+                                                app.status_message = Some("Output viewed (changes discarded)".to_string());
                                             }
                                         }
                                     }

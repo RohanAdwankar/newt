@@ -63,12 +63,14 @@ newts
 | Toggle Sidebar | `Space e` | Toolbar |
 | **Cell Operations** | | |
 | Edit Cell | `i` | `Enter` |
+| Open Output Cell In Editor | `I` | - |
 | Exit Edit Mode | `Esc` | `Esc` |
 | Run Cell | `Enter` | `Shift+Enter` |
 | Add Cell Below | `o` | Toolbar |
 | Add Cell Above | `O` | - |
 | Delete Cell | `d` | - |
-| Copy Cell | `y` | - |
+| Copy Input Cell | `y` | - |
+| Copy Output Cell | `Y` | - |
 | Cut Cell | - | Toolbar |
 | Paste Cell Below | `p` | Toolbar |
 | Paste Cell Above | `P` | - |
