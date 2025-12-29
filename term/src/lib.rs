@@ -150,6 +150,7 @@ pub struct App {
     pub overwrite_path: Option<PathBuf>,
     pub editor: String,
     pub accent_color: Color,
+    pub dirty: bool,
 }
 
 #[derive(PartialEq)]
@@ -197,6 +198,7 @@ impl App {
             overwrite_path: None,
             editor: std::env::var("EDITOR").unwrap_or_else(|_| "vi".to_string()),
             accent_color: Color::Indexed(40),
+            dirty: false,
         };
 
         app.load_config();
@@ -325,6 +327,7 @@ impl App {
         self.list_state.select(Some(index * 2));
         self.input.clear();
         self.input_mode = InputMode::Normal;
+        self.dirty = true;
     }
 
     fn delete_current_cell(&mut self) {
@@ -332,6 +335,7 @@ impl App {
             let cell_idx = i / 2;
             if self.cells.len() > 0 {
                 self.cells.remove(cell_idx);
+                self.dirty = true;
                 if self.cells.is_empty() {
                     // Always keep at least one cell
                     self.add_cell(CellType::Shell);
@@ -394,6 +398,7 @@ impl App {
 
         fs::write(&path, content)?;
         self.file_path = Some(path);
+        self.dirty = false;
         Ok(())
     }
 
@@ -909,6 +914,7 @@ async fn run_app<B: Backend + std::io::Write>(terminal: &mut Terminal<B>, app: &
                                                 let idx = if app.cells.is_empty() { 0 } else { (i / 2) + 1 };
                                                 app.cells.insert(idx, new_cell);
                                                 app.status_message = Some("Cell pasted".to_string());
+                                                app.dirty = true;
                                             }
                                         }
                                     }
@@ -919,6 +925,7 @@ async fn run_app<B: Backend + std::io::Write>(terminal: &mut Terminal<B>, app: &
                                                 new_cell.id = uuid::Uuid::new_v4().to_string();
                                                 app.cells.insert(i / 2, new_cell);
                                                 app.status_message = Some("Cell pasted above".to_string());
+                                                app.dirty = true;
                                             }
                                         }
                                     }
@@ -1041,7 +1048,10 @@ async fn run_app<B: Backend + std::io::Write>(terminal: &mut Terminal<B>, app: &
                                             match res {
                                                 Ok(new_content) => {
                                                     if let Some(cell) = app.cells.get_mut(cell_idx) {
-                                                        cell.content = new_content;
+                                                        if cell.content != new_content {
+                                                            cell.content = new_content;
+                                                            app.dirty = true;
+                                                        }
                                                     }
                                                 }
                                                 Err(e) => {
@@ -1121,7 +1131,10 @@ async fn run_app<B: Backend + std::io::Write>(terminal: &mut Terminal<B>, app: &
                                                     match res {
                                                         Ok(new_content) => {
                                                             if let Some(cell) = app.current_cell_mut() {
-                                                                cell.content = new_content;
+                                                                if cell.content != new_content {
+                                                                    cell.content = new_content;
+                                                                    app.dirty = true;
+                                                                }
                                                             }
                                                         }
                                                         Err(e) => {
@@ -1369,7 +1382,14 @@ async fn run_app<B: Backend + std::io::Write>(terminal: &mut Terminal<B>, app: &
                                 app.command_input.clear();
                             } else {
                                 match app.command_input.as_str() {
-                                "q" => return Ok(()),
+                                "q" => {
+                                    if app.dirty {
+                                        app.status_message = Some("E37: No write since last change (add ! to override)".to_string());
+                                    } else {
+                                        return Ok(());
+                                    }
+                                }
+                                "q!" => return Ok(()),
                                 "w" => {
                                     app.save_notebook(None)?;
                                     app.input_mode = InputMode::Normal;
@@ -1469,6 +1489,7 @@ async fn run_app<B: Backend + std::io::Write>(terminal: &mut Terminal<B>, app: &
                                     if let Some(i) = app.list_state.selected() {
                                         if let Some(cell) = app.cells.get_mut(i / 2) {
                                             cell.cell_type = CellType::Rust;
+                                            app.dirty = true;
                                         }
                                     }
                                     app.input_mode = InputMode::Normal;
@@ -1477,6 +1498,7 @@ async fn run_app<B: Backend + std::io::Write>(terminal: &mut Terminal<B>, app: &
                                     if let Some(i) = app.list_state.selected() {
                                         if let Some(cell) = app.cells.get_mut(i / 2) {
                                             cell.cell_type = CellType::Cpp;
+                                            app.dirty = true;
                                         }
                                     }
                                     app.input_mode = InputMode::Normal;
@@ -1485,6 +1507,7 @@ async fn run_app<B: Backend + std::io::Write>(terminal: &mut Terminal<B>, app: &
                                     if let Some(i) = app.list_state.selected() {
                                         if let Some(cell) = app.cells.get_mut(i / 2) {
                                             cell.cell_type = CellType::C;
+                                            app.dirty = true;
                                         }
                                     }
                                     app.input_mode = InputMode::Normal;
@@ -1493,6 +1516,7 @@ async fn run_app<B: Backend + std::io::Write>(terminal: &mut Terminal<B>, app: &
                                     if let Some(i) = app.list_state.selected() {
                                         if let Some(cell) = app.cells.get_mut(i / 2) {
                                             cell.cell_type = CellType::Python;
+                                            app.dirty = true;
                                         }
                                     }
                                     app.input_mode = InputMode::Normal;
@@ -1501,6 +1525,7 @@ async fn run_app<B: Backend + std::io::Write>(terminal: &mut Terminal<B>, app: &
                                     if let Some(i) = app.list_state.selected() {
                                         if let Some(cell) = app.cells.get_mut(i / 2) {
                                             cell.cell_type = CellType::TypeScript;
+                                            app.dirty = true;
                                         }
                                     }
                                     app.input_mode = InputMode::Normal;
@@ -1509,6 +1534,7 @@ async fn run_app<B: Backend + std::io::Write>(terminal: &mut Terminal<B>, app: &
                                     if let Some(i) = app.list_state.selected() {
                                         if let Some(cell) = app.cells.get_mut(i / 2) {
                                             cell.cell_type = CellType::JavaScript;
+                                            app.dirty = true;
                                         }
                                     }
                                     app.input_mode = InputMode::Normal;
@@ -1517,6 +1543,7 @@ async fn run_app<B: Backend + std::io::Write>(terminal: &mut Terminal<B>, app: &
                                     if let Some(i) = app.list_state.selected() {
                                         if let Some(cell) = app.cells.get_mut(i / 2) {
                                             cell.cell_type = CellType::Markdown;
+                                            app.dirty = true;
                                         }
                                     }
                                     app.input_mode = InputMode::Normal;
@@ -1525,6 +1552,7 @@ async fn run_app<B: Backend + std::io::Write>(terminal: &mut Terminal<B>, app: &
                                     if let Some(i) = app.list_state.selected() {
                                         if let Some(cell) = app.cells.get_mut(i / 2) {
                                             cell.cell_type = CellType::Shell;
+                                            app.dirty = true;
                                         }
                                     }
                                     app.input_mode = InputMode::Normal;
@@ -1560,20 +1588,24 @@ async fn run_app<B: Backend + std::io::Write>(terminal: &mut Terminal<B>, app: &
                                     if input == "r/" {
                                         cell.polling_interval = None;
                                         app.status_message = Some("Polling disabled".to_string());
+                                        app.dirty = true;
                                     } else if input.starts_with("rm") {
                                         if let Ok(val) = input[2..].parse::<u64>() {
                                             cell.polling_interval = Some(val * 60);
                                             app.status_message = Some(format!("Polling set to {}s", val * 60));
+                                            app.dirty = true;
                                         }
                                     } else if input.starts_with("rh") {
                                         if let Ok(val) = input[2..].parse::<u64>() {
                                             cell.polling_interval = Some(val * 3600);
                                             app.status_message = Some(format!("Polling set to {}s", val * 3600));
+                                            app.dirty = true;
                                         }
                                     } else if input.starts_with('r') {
                                         if let Ok(val) = input[1..].parse::<u64>() {
                                             cell.polling_interval = Some(val);
                                             app.status_message = Some(format!("Polling set to {}s", val));
+                                            app.dirty = true;
                                         }
                                     }
                                 }
@@ -1647,7 +1679,10 @@ async fn run_app<B: Backend + std::io::Write>(terminal: &mut Terminal<B>, app: &
 
                                     match res {
                                         Ok(new_content) => {
-                                            cell.content = new_content;
+                                            if new_content != cell.content {
+                                                cell.content = new_content;
+                                                app.dirty = true;
+                                            }
                                             app.input_mode = InputMode::Normal; 
                                         }
                                         Err(e) => {
@@ -1950,7 +1985,7 @@ fn ui(f: &mut Frame, app: &App) {
         let mut items = vec![ListItem::new("New Notebook").style(Style::default().add_modifier(Modifier::BOLD))];
         for item in &app.available_files {
             if item.is_header {
-                items.push(ListItem::new(Span::styled(format!("--- {} ---", item.label), Style::default().fg(Color::Yellow))));
+                items.push(ListItem::new(Span::styled(format!("--- {} ---", item.label), Style::default().fg(Color::DarkGray))));
             } else {
                 let name = if let Some(path) = &item.path {
                     path.file_name().unwrap().to_string_lossy().to_string()
