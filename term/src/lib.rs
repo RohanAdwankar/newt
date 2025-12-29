@@ -19,6 +19,15 @@ use std::{error::Error, io, process::Command, path::PathBuf, fs};
 use std::io::Write;
 
 pub mod server;
+pub mod markdown;
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct FileItem {
+    pub path: Option<PathBuf>,
+    pub label: String,
+    pub is_header: bool,
+    pub is_app_file: bool,
+}
 
 #[derive(Parser, Debug)]
 #[command(author, version, about, long_about = None)]
@@ -125,7 +134,7 @@ pub struct App {
     pub command_input: String,
     pub file_path: Option<PathBuf>,
     pub file_list_state: ListState,
-    pub available_files: Vec<PathBuf>,
+    pub available_files: Vec<FileItem>,
     pub pending_key: Option<char>,
     pub show_sidebar: bool,
     pub focus: Focus,
@@ -209,6 +218,15 @@ impl App {
                                 app.list_state.select(Some(0));
                                 return app;
                             }
+                            
+                            let cells = crate::markdown::parse_markdown(&content);
+                            if !cells.is_empty() {
+                                app.cells = cells;
+                                app.file_path = Some(path);
+                                app.input_mode = InputMode::Normal;
+                                app.list_state.select(Some(0));
+                                return app;
+                            }
                         }
                     }
                     // If file doesn't exist or fails to load, start empty but set path
@@ -228,18 +246,63 @@ impl App {
 
     fn refresh_file_list(&mut self) {
         self.available_files.clear();
-        let dir = get_app_dir();
-        if let Ok(entries) = fs::read_dir(dir) {
-            for entry in entries.flatten() {
-                let path = entry.path();
-                if path.extension().map_or(false, |ext| ext == "newt") {
-                    self.available_files.push(path);
+
+        // Local Files
+        self.available_files.push(FileItem {
+            path: None,
+            label: "Current Directory".to_string(),
+            is_header: true,
+            is_app_file: false,
+        });
+
+        if let Ok(entries) = fs::read_dir(".") {
+            let mut files: Vec<PathBuf> = entries.flatten().map(|e| e.path()).collect();
+            files.sort();
+            for path in files {
+                // Ignore hidden files/dirs starting with .
+                if let Some(name) = path.file_name() {
+                    if name.to_string_lossy().starts_with('.') { continue; }
                 }
+                
+                let label = path.file_name().unwrap().to_string_lossy().to_string();
+                self.available_files.push(FileItem {
+                    path: Some(path),
+                    label,
+                    is_header: false,
+                    is_app_file: false,
+                });
             }
         }
-        // Sort files
-        self.available_files.sort();
-        // Always select the first item (New Notebook)
+
+        // App Files
+        self.available_files.push(FileItem {
+            path: None,
+            label: "Application Files".to_string(),
+            is_header: true,
+            is_app_file: true,
+        });
+        
+        let dir = get_app_dir();
+        if let Ok(entries) = fs::read_dir(dir) {
+            let mut files: Vec<PathBuf> = Vec::new();
+            for entry in entries.flatten() {
+                let path = entry.path();
+                if path.extension().map_or(false, |ext| ext == "newt" || ext == "md") {
+                    files.push(path);
+                }
+            }
+            files.sort();
+            for path in files {
+                let label = path.file_name().unwrap().to_string_lossy().to_string();
+                self.available_files.push(FileItem {
+                    path: Some(path),
+                    label,
+                    is_header: false,
+                    is_app_file: true,
+                });
+            }
+        }
+        
         self.file_list_state.select(Some(0));
     }
 
@@ -300,18 +363,19 @@ impl App {
              if p.is_absolute() {
                  p
              } else {
-                 get_app_dir().join(name)
+                 let cwd = std::env::current_dir()?;
+                 cwd.join(name)
              }
         } else if let Some(ref p) = self.file_path {
              p.clone()
         } else {
-             let mut p = get_app_dir();
-             p.push("notebook.newt");
+             let mut p = std::env::current_dir()?;
+             p.push("notebook.md");
              
              // Check if file exists and increment name
              let mut counter = 2;
              while p.exists() {
-                 p.set_file_name(format!("notebook{}.newt", counter));
+                 p.set_file_name(format!("notebook{}.md", counter));
                  counter += 1;
              }
              p
@@ -321,8 +385,14 @@ impl App {
             fs::create_dir_all(parent)?;
         }
 
-        let json = serde_json::to_string_pretty(&self.cells)?;
-        fs::write(&path, json)?;
+        let is_markdown = path.extension().map_or(false, |ext| ext == "md");
+        let content = if is_markdown {
+            crate::markdown::to_markdown(&self.cells)
+        } else {
+            serde_json::to_string_pretty(&self.cells)?
+        };
+
+        fs::write(&path, content)?;
         self.file_path = Some(path);
         Ok(())
     }
@@ -655,21 +725,78 @@ async fn run_app<B: Backend + std::io::Write>(terminal: &mut Terminal<B>, app: &
                                                 app.file_path = None;
                                                 app.input_mode = InputMode::Normal;
                                                 app.list_state.select(Some(0));
+                                                app.focus = Focus::Editor;
                                             } else {
                                                 // Open selected file
-                                                if let Some(path) = app.available_files.get(i - 1) {
-                                                    if let Ok(content) = fs::read_to_string(path) {
-                                                        if let Ok(cells) = serde_json::from_str(&content) {
-                                                            app.cells = cells;
+                                                if let Some(item) = app.available_files.get(i - 1) {
+                                                    if item.is_header {
+                                                        // Do nothing
+                                                    } else if let Some(path) = &item.path {
+                                                        let ext = path.extension().unwrap_or_default().to_string_lossy();
+                                                        let is_notebook = ext == "newt" || ext == "md";
+                                                        
+                                                        let mut loaded = false;
+                                                        if is_notebook {
+                                                            if let Ok(content) = fs::read_to_string(path) {
+                                                                if let Ok(cells) = serde_json::from_str(&content) {
+                                                                    app.cells = cells;
+                                                                    loaded = true;
+                                                                } else {
+                                                                    let cells = crate::markdown::parse_markdown(&content);
+                                                                    if !cells.is_empty() {
+                                                                        app.cells = cells;
+                                                                        loaded = true;
+                                                                    }
+                                                                }
+                                                            }
+                                                        }
+                                                        
+                                                        if loaded {
                                                             app.file_path = Some(path.clone());
                                                             app.input_mode = InputMode::Normal;
                                                             app.list_state.select(Some(0));
+                                                            app.focus = Focus::Editor;
+                                                        } else {
+                                                            // Open in external editor
+                                                            let mut editor_cmd = app.editor.clone();
+                                                            let is_code = editor_cmd.trim().starts_with("code");
+                                                            if is_code && !editor_cmd.contains("--wait") && !editor_cmd.contains("-w") {
+                                                                editor_cmd.push_str(" --wait");
+                                                            }
+                                                            
+                                                            let path_str = path.to_string_lossy().to_string();
+
+                                                            if !is_code {
+                                                                disable_raw_mode()?;
+                                                                execute!(terminal.backend_mut(), LeaveAlternateScreen, DisableMouseCapture)?;
+                                                            }
+                                                            
+                                                            let parts: Vec<&str> = editor_cmd.split_whitespace().collect();
+                                                            if !parts.is_empty() {
+                                                                let mut cmd = Command::new(parts[0]);
+                                                                cmd.args(&parts[1..]);
+                                                                cmd.arg(&path_str);
+                                                                
+                                                                if !is_code {
+                                                                     let _ = cmd.status();
+                                                                } else {
+                                                                     let _ = cmd.spawn();
+                                                                }
+                                                            }
+                                                            
+                                                            if !is_code {
+                                                                execute!(terminal.backend_mut(), EnterAlternateScreen, EnableMouseCapture)?;
+                                                                enable_raw_mode()?;
+                                                                terminal.clear()?;
+                                                            }
                                                         }
                                                     }
                                                 }
                                             }
                                             // Switch focus back to editor
-                                            app.focus = Focus::Editor;
+                                            if app.file_path.is_some() || app.cells.len() > 0 {
+                                                app.focus = Focus::Editor;
+                                            }
                                         }
                                     }
                                     KeyCode::Char('l') | KeyCode::Right => {
@@ -677,10 +804,14 @@ async fn run_app<B: Backend + std::io::Write>(terminal: &mut Terminal<B>, app: &
                                     }
                                     KeyCode::Char('r') => {
                                         if let Some(i) = app.file_list_state.selected() {
-                                            if i > 0 { // Can't rename "New Notebook"
-                                                if let Some(path) = app.available_files.get(i - 1) {
-                                                    app.rename_input = path.file_name().unwrap().to_string_lossy().to_string();
-                                                    app.input_mode = InputMode::Renaming;
+                                            if i > 0 { 
+                                                if let Some(item) = app.available_files.get(i - 1) {
+                                                    if !item.is_header {
+                                                        if let Some(path) = &item.path {
+                                                            app.rename_input = path.file_name().unwrap().to_string_lossy().to_string();
+                                                            app.input_mode = InputMode::Renaming;
+                                                        }
+                                                    }
                                                 }
                                             }
                                         }
@@ -688,10 +819,14 @@ async fn run_app<B: Backend + std::io::Write>(terminal: &mut Terminal<B>, app: &
                                     KeyCode::Char('d') => {
                                         if let Some(i) = app.file_list_state.selected() {
                                             if i > 0 {
-                                                if let Some(path) = app.available_files.get(i - 1) {
-                                                    app.file_to_delete = Some(path.clone());
-                                                    app.input_mode = InputMode::ConfirmDelete;
-                                                    app.command_input = format!("Remove {}? y/N: ", path.display());
+                                                if let Some(item) = app.available_files.get(i - 1) {
+                                                    if !item.is_header {
+                                                        if let Some(path) = &item.path {
+                                                            app.file_to_delete = Some(path.clone());
+                                                            app.input_mode = InputMode::ConfirmDelete;
+                                                            app.command_input = format!("Remove {}? y/N: ", path.display());
+                                                        }
+                                                    }
                                                 }
                                             }
                                         }
@@ -699,9 +834,13 @@ async fn run_app<B: Backend + std::io::Write>(terminal: &mut Terminal<B>, app: &
                                     KeyCode::Char('y') => {
                                         if let Some(i) = app.file_list_state.selected() {
                                             if i > 0 {
-                                                if let Some(path) = app.available_files.get(i - 1) {
-                                                    app.clipboard_file = Some(path.clone());
-                                                    app.status_message = Some(format!("Yanked {}", path.display()));
+                                                if let Some(item) = app.available_files.get(i - 1) {
+                                                    if !item.is_header {
+                                                        if let Some(path) = &item.path {
+                                                            app.clipboard_file = Some(path.clone());
+                                                            app.status_message = Some(format!("Yanked {}", path.display()));
+                                                        }
+                                                    }
                                                 }
                                             }
                                         }
@@ -1236,6 +1375,21 @@ async fn run_app<B: Backend + std::io::Write>(terminal: &mut Terminal<B>, app: &
                                     app.input_mode = InputMode::Normal;
                                     app.refresh_file_list(); // Refresh list after save
                                 }
+                                "ww" => {
+                                    let filename = if let Some(p) = &app.file_path {
+                                        p.file_name().unwrap().to_string_lossy().to_string()
+                                    } else {
+                                        "notebook.md".to_string()
+                                    };
+                                    let mut path = get_app_dir();
+                                    path.push(&filename);
+                                    let path_str = path.to_string_lossy().to_string();
+                                    
+                                    app.save_notebook(Some(&path_str))?;
+                                    app.status_message = Some(format!("Saved to {}", path.display()));
+                                    app.input_mode = InputMode::Normal;
+                                    app.refresh_file_list();
+                                }
                                 "wq" => {
                                     app.save_notebook(None)?;
                                     return Ok(());
@@ -1596,25 +1750,24 @@ async fn run_app<B: Backend + std::io::Write>(terminal: &mut Terminal<B>, app: &
                         KeyCode::Enter => {
                             if let Some(i) = app.file_list_state.selected() {
                                 if i > 0 {
-                                    if let Some(old_path) = app.available_files.get(i - 1) {
-                                        let mut new_path = old_path.clone();
-                                        let mut new_name = app.rename_input.clone();
-                                        if !new_name.ends_with(".newt") {
-                                            new_name.push_str(".newt");
-                                        }
-                                        new_path.set_file_name(&new_name);
-                                        
-                                        if fs::rename(old_path, &new_path).is_ok() {
-                                            // Update file_path if we renamed the currently open file
-                                            if let Some(current) = &app.file_path {
-                                                if current == old_path {
-                                                    app.file_path = Some(new_path);
+                                    if let Some(item) = app.available_files.get(i - 1) {
+                                        if let Some(old_path) = &item.path {
+                                            let mut new_path = old_path.clone();
+                                            let new_name = app.rename_input.clone();
+                                            new_path.set_file_name(&new_name);
+                                            
+                                            if fs::rename(old_path, &new_path).is_ok() {
+                                                // Update file_path if we renamed the currently open file
+                                                if let Some(current) = &app.file_path {
+                                                    if current == old_path {
+                                                        app.file_path = Some(new_path);
+                                                    }
                                                 }
+                                                app.refresh_file_list();
+                                                app.status_message = Some(format!("Renamed to {}", new_name));
+                                            } else {
+                                                app.status_message = Some("Rename failed".to_string());
                                             }
-                                            app.refresh_file_list();
-                                            app.status_message = Some(format!("Renamed to {}", new_name));
-                                        } else {
-                                            app.status_message = Some("Rename failed".to_string());
                                         }
                                     }
                                 }
@@ -1795,8 +1948,17 @@ fn ui(f: &mut Frame, app: &App) {
     // Render Sidebar
     if let Some(sidebar_area) = content_chunks.0 {
         let mut items = vec![ListItem::new("New Notebook").style(Style::default().add_modifier(Modifier::BOLD))];
-        for path in &app.available_files {
-            items.push(ListItem::new(path.file_name().unwrap().to_string_lossy()));
+        for item in &app.available_files {
+            if item.is_header {
+                items.push(ListItem::new(Span::styled(format!("--- {} ---", item.label), Style::default().fg(Color::Yellow))));
+            } else {
+                let name = if let Some(path) = &item.path {
+                    path.file_name().unwrap().to_string_lossy().to_string()
+                } else {
+                    item.label.clone()
+                };
+                items.push(ListItem::new(format!("  {}", name)));
+            }
         }
         
         let border_style = if app.focus == Focus::Sidebar {

@@ -593,6 +593,9 @@ impl RustKernel {
                 .collect();
                 
             return format!(r#"
+#![allow(unused_imports)]
+#![allow(dead_code)]
+#![allow(unused_variables)]
 {}
 
 // Newt Input Support
@@ -661,6 +664,9 @@ fn main() {{
         
         // No statements and no user main. Generate empty main to ensure compilation.
         format!(r#"
+#![allow(unused_imports)]
+#![allow(dead_code)]
+#![allow(unused_variables)]
 {}
 
 // Newt Input Support
@@ -718,38 +724,117 @@ fn main() {{
     }
 
     fn compile_and_run(&self, source: &str) -> Result<KernelResponse, String> {
-        let temp_dir = std::env::temp_dir();
-        let file_name = format!("newt_rust_{}.rs", uuid::Uuid::new_v4());
-        let file_path = temp_dir.join(&file_name);
-        let bin_path = temp_dir.join(format!("newt_rust_bin_{}", uuid::Uuid::new_v4()));
+        // Check for external dependencies
+        let mut dependencies = std::collections::HashSet::new();
+        let use_regex = regex::Regex::new(r"(?m)^\s*use\s+([a-zA-Z0-9_]+)").unwrap();
+        let extern_regex = regex::Regex::new(r"(?m)^\s*extern\s+crate\s+([a-zA-Z0-9_]+)").unwrap();
 
-        std::fs::write(&file_path, source).map_err(|e| e.to_string())?;
-
-        let compile_output = Command::new("rustc")
-            .arg(&file_path)
-            .arg("-o")
-            .arg(&bin_path)
-            .output()
-            .map_err(|e| format!("Failed to run rustc: {}", e))?;
-
-        if !compile_output.status.success() {
-            let _ = std::fs::remove_file(&file_path);
-            return Err(String::from_utf8_lossy(&compile_output.stderr).to_string());
+        for cap in use_regex.captures_iter(source) {
+            let dep = cap[1].to_string();
+            if dep != "std" && dep != "core" && dep != "alloc" && dep != "crate" && dep != "super" && dep != "self" {
+                dependencies.insert(dep);
+            }
+        }
+        for cap in extern_regex.captures_iter(source) {
+            let dep = cap[1].to_string();
+            dependencies.insert(dep);
         }
 
-        let run_output = Command::new(&bin_path)
-            .output()
-            .map_err(|e| format!("Failed to run binary: {}", e))?;
+        if dependencies.is_empty() {
+            let temp_dir = std::env::temp_dir();
+            let file_name = format!("newt_rust_{}.rs", uuid::Uuid::new_v4());
+            let file_path = temp_dir.join(&file_name);
+            let bin_path = temp_dir.join(format!("newt_rust_bin_{}", uuid::Uuid::new_v4()));
 
-        let _ = std::fs::remove_file(&file_path);
-        let _ = std::fs::remove_file(&bin_path);
+            std::fs::write(&file_path, source).map_err(|e| e.to_string())?;
 
-        Ok(KernelResponse {
-            stdout: String::from_utf8_lossy(&run_output.stdout).to_string(),
-            stderr: String::from_utf8_lossy(&run_output.stderr).to_string(),
-            status: run_output.status.code(),
-            display_data: None,
-        })
+            let compile_output = Command::new("rustc")
+                .arg(&file_path)
+                .arg("-o")
+                .arg(&bin_path)
+                .output()
+                .map_err(|e| format!("Failed to run rustc: {}", e))?;
+
+            if !compile_output.status.success() {
+                let _ = std::fs::remove_file(&file_path);
+                return Err(String::from_utf8_lossy(&compile_output.stderr).to_string());
+            }
+
+            let run_output = Command::new(&bin_path)
+                .output()
+                .map_err(|e| format!("Failed to run binary: {}", e))?;
+
+            let _ = std::fs::remove_file(&file_path);
+            let _ = std::fs::remove_file(&bin_path);
+
+            Ok(KernelResponse {
+                stdout: String::from_utf8_lossy(&run_output.stdout).to_string(),
+                stderr: String::from_utf8_lossy(&run_output.stderr).to_string(),
+                status: run_output.status.code(),
+                display_data: None,
+            })
+        } else {
+            let temp_dir = std::env::temp_dir();
+            let project_dir = temp_dir.join("newt_rust_project");
+            
+            if !project_dir.exists() {
+                std::fs::create_dir_all(&project_dir).map_err(|e| e.to_string())?;
+                Command::new("cargo")
+                    .arg("init")
+                    .arg("--bin")
+                    .current_dir(&project_dir)
+                    .output()
+                    .map_err(|e| format!("Failed to init cargo project: {}", e))?;
+            }
+
+            let cargo_toml_path = project_dir.join("Cargo.toml");
+            let cargo_toml_content = std::fs::read_to_string(&cargo_toml_path).unwrap_or_default();
+            
+            for dep in dependencies {
+                if !cargo_toml_content.contains(&format!("{} =", dep)) && !cargo_toml_content.contains(&format!("\"{}\"", dep)) {
+                     let _ = Command::new("cargo")
+                        .arg("add")
+                        .arg(&dep)
+                        .current_dir(&project_dir)
+                        .output();
+                }
+            }
+
+            let main_rs_path = project_dir.join("src").join("main.rs");
+            std::fs::write(&main_rs_path, source).map_err(|e| e.to_string())?;
+
+            // Build first to separate build warnings from runtime output
+            let build_output = Command::new("cargo")
+                .arg("build")
+                .arg("--quiet")
+                .current_dir(&project_dir)
+                .output()
+                .map_err(|e| format!("Failed to build cargo project: {}", e))?;
+
+            if !build_output.status.success() {
+                return Err(String::from_utf8_lossy(&build_output.stderr).to_string());
+            }
+
+            // Run the binary directly to control working directory
+            // Assuming default binary name from cargo init (directory name)
+            let binary_name = "newt_rust_project";
+            let binary_path = project_dir.join("target").join("debug").join(binary_name);
+            
+            // Use current working directory of the server process
+            let current_dir = std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("."));
+
+            let run_output = Command::new(&binary_path)
+                .current_dir(&current_dir)
+                .output()
+                .map_err(|e| format!("Failed to run binary: {}", e))?;
+
+            Ok(KernelResponse {
+                stdout: String::from_utf8_lossy(&run_output.stdout).to_string(),
+                stderr: String::from_utf8_lossy(&run_output.stderr).to_string(),
+                status: run_output.status.code(),
+                display_data: None,
+            })
+        }
     }
 }
 
