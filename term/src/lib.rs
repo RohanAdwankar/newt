@@ -151,6 +151,7 @@ pub struct App {
     pub editor: String,
     pub accent_color: Color,
     pub dirty: bool,
+    pub last_file_refresh: std::time::Instant,
 }
 
 #[derive(PartialEq)]
@@ -199,6 +200,7 @@ impl App {
             editor: std::env::var("EDITOR").unwrap_or_else(|_| "vi".to_string()),
             accent_color: Color::Indexed(40),
             dirty: false,
+            last_file_refresh: std::time::Instant::now(),
         };
 
         app.load_config();
@@ -276,6 +278,9 @@ impl App {
     }
 
     fn refresh_file_list(&mut self) {
+        // Preserve the current selection
+        let current_selection = self.file_list_state.selected();
+        
         self.available_files.clear();
 
         // Local Files
@@ -339,7 +344,14 @@ impl App {
             }
         }
         
-        self.file_list_state.select(Some(0));
+        // Restore the previous selection, or default to 0 if it was None
+        // Also ensure the selection is within bounds
+        if let Some(selected) = current_selection {
+            let max_index = self.available_files.len().saturating_sub(1);
+            self.file_list_state.select(Some(selected.min(max_index)));
+        } else {
+            self.file_list_state.select(Some(0));
+        }
     }
 
     fn add_cell(&mut self, cell_type: CellType) {
@@ -743,6 +755,17 @@ async fn run_app<B: Backend + std::io::Write>(terminal: &mut Terminal<B>, app: &
                 }
             }
         }
+
+        // Periodic file tree refresh (every 2 seconds when sidebar is visible)
+        if app.show_sidebar {
+            let now = std::time::Instant::now();
+            let refresh_interval = std::time::Duration::from_secs(2);
+            if now.duration_since(app.last_file_refresh) >= refresh_interval {
+                app.refresh_file_list();
+                app.last_file_refresh = now;
+            }
+        }
+
 
         terminal.draw(|f| ui(f, app))?;
 
