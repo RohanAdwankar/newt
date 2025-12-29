@@ -161,7 +161,7 @@ pub fn to_markdown(cells: &[Cell]) -> String {
                 CellType::Markdown => "markdown", 
             };
             
-            output.push_str(&format!("`{}`\n", lang));
+            output.push_str(&format!("```{}\n", lang));
             output.push_str(&cell.content);
             if !cell.content.ends_with('\n') {
                 output.push('\n');
