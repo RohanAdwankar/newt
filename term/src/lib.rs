@@ -1035,6 +1035,7 @@ async fn run_app<B: Backend + std::io::Write>(terminal: &mut Terminal<B>, app: &
                                     }
                                     KeyCode::Enter => {
                                         if let Some(i) = app.file_list_state.selected() {
+                                            let mut should_switch_focus = false;
                                             if i == 0 {
                                                 // New Notebook
                                                 app.cells.clear();
@@ -1042,12 +1043,12 @@ async fn run_app<B: Backend + std::io::Write>(terminal: &mut Terminal<B>, app: &
                                                 app.file_path = None;
                                                 app.input_mode = InputMode::Normal;
                                                 app.list_state.select(Some(0));
-                                                app.focus = Focus::Editor;
+                                                should_switch_focus = true;
                                             } else {
                                                 // Check if it's a directory or file
                                                 if let Some(item) = app.available_files.get(i - 1) {
                                                     if item.is_directory {
-                                                        // Toggle directory expansion
+                                                        // Toggle directory expansion - don't switch focus
                                                         app.toggle_directory(i - 1);
                                                     } else if item.is_header {
                                                         // Do nothing
@@ -1075,7 +1076,7 @@ async fn run_app<B: Backend + std::io::Write>(terminal: &mut Terminal<B>, app: &
                                                             app.file_path = Some(path.clone());
                                                             app.input_mode = InputMode::Normal;
                                                             app.list_state.select(Some(0));
-                                                            app.focus = Focus::Editor;
+                                                            should_switch_focus = true;
                                                         } else {
                                                             // Open in external editor
                                                             disable_raw_mode()?;
@@ -1086,12 +1087,13 @@ async fn run_app<B: Backend + std::io::Write>(terminal: &mut Terminal<B>, app: &
                                                             execute!(terminal.backend_mut(), EnterAlternateScreen, EnableMouseCapture)?;
                                                             enable_raw_mode()?;
                                                             terminal.clear()?;
+                                                            // External editor opened, but don't switch focus
                                                         }
                                                     }
                                                 }
                                             }
-                                            // Switch focus back to editor
-                                            if app.file_path.is_some() || app.cells.len() > 0 {
+                                            // Only switch focus if we opened a notebook
+                                            if should_switch_focus {
                                                 app.focus = Focus::Editor;
                                             }
                                         }
@@ -1225,6 +1227,9 @@ async fn run_app<B: Backend + std::io::Write>(terminal: &mut Terminal<B>, app: &
                                     KeyCode::Char(':') => {
                                         app.input_mode = InputMode::Command;
                                         app.command_input.clear();
+                                        // Clear search when entering command mode
+                                        app.sidebar_search.clear();
+                                        app.editor_search.clear();
                                     }
                                     _ => {}
                                 }
@@ -1338,6 +1343,9 @@ async fn run_app<B: Backend + std::io::Write>(terminal: &mut Terminal<B>, app: &
                                     KeyCode::Char(':') => {
                                         app.input_mode = InputMode::Command;
                                         app.command_input.clear();
+                                        // Clear search when entering command mode
+                                        app.sidebar_search.clear();
+                                        app.editor_search.clear();
                                     }
                                     KeyCode::Char(c) if c.is_ascii_digit() => {
                                         if c == '0' && app.numeric_prefix.is_none() {
@@ -2805,7 +2813,32 @@ fn ui(f: &mut Frame, app: &App) {
                 } else {
                     "[No Name]".to_string()
                 };
-                let status_block = Paragraph::new(status)
+
+                // Show search count on the right if there's an active search
+                let search_info = if app.focus == Focus::Sidebar && !app.sidebar_search.query.is_empty() {
+                    if !app.sidebar_search.matches.is_empty() {
+                        format!(" /{} ({}/{})",
+                            app.sidebar_search.query,
+                            app.sidebar_search.current_match.map(|m| m + 1).unwrap_or(0),
+                            app.sidebar_search.matches.len())
+                    } else {
+                        format!(" /{} (no matches)", app.sidebar_search.query)
+                    }
+                } else if app.focus == Focus::Editor && !app.editor_search.query.is_empty() {
+                    if !app.editor_search.matches.is_empty() {
+                        format!(" /{} ({}/{})",
+                            app.editor_search.query,
+                            app.editor_search.current_match.map(|m| m + 1).unwrap_or(0),
+                            app.editor_search.matches.len())
+                    } else {
+                        format!(" /{} (no matches)", app.editor_search.query)
+                    }
+                } else {
+                    String::new()
+                };
+
+                let full_status = format!("{}{}", status, search_info);
+                let status_block = Paragraph::new(full_status)
                 .style(Style::default().fg(Color::DarkGray));
                 f.render_widget(status_block, bottom_bar_area);
         }
