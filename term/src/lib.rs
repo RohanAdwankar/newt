@@ -1,5 +1,5 @@
 use clap::Parser;
-use arboard::Clipboard;
+
 use crossterm::{
     event::{self, DisableMouseCapture, EnableMouseCapture, Event, KeyCode, KeyboardEnhancementFlags, PushKeyboardEnhancementFlags, PopKeyboardEnhancementFlags},
     execute,
@@ -353,7 +353,7 @@ impl App {
             last_run: None,
         });
         // Select the input of the new cell
-        self.list_state.select(Some(index * 2));
+        self.list_state.select(Some(index));
         self.input.clear();
         self.input_mode = InputMode::Normal;
         self.dirty = true;
@@ -361,7 +361,7 @@ impl App {
 
     fn delete_current_cell(&mut self) {
         if let Some(i) = self.list_state.selected() {
-            let cell_idx = i / 2;
+            let cell_idx = i;
             if self.cells.len() > 0 {
                 self.cells.remove(cell_idx);
                 self.dirty = true;
@@ -375,7 +375,7 @@ impl App {
                     } else {
                         cell_idx
                     };
-                    self.list_state.select(Some(new_idx * 2));
+                    self.list_state.select(Some(new_idx));
                 }
             }
         }
@@ -383,7 +383,7 @@ impl App {
 
     fn current_cell_mut(&mut self) -> Option<&mut Cell> {
         if let Some(i) = self.list_state.selected() {
-            let cell_idx = i / 2;
+            let cell_idx = i;
             self.cells.get_mut(cell_idx)
         } else {
             None
@@ -584,15 +584,8 @@ impl App {
         }
     }
 
-    pub fn get_visual_items(&self) -> Vec<(usize, bool)> {
-        let mut items = Vec::new();
-        for (i, cell) in self.cells.iter().enumerate() {
-            items.push((i, false)); // Input
-            if cell.cell_type != CellType::Markdown {
-                items.push((i, true)); // Output
-            }
-        }
-        items
+    pub fn get_visual_items(&self) -> Vec<usize> {
+        (0..self.cells.len()).collect()
     }
 }
 
@@ -949,20 +942,10 @@ async fn run_app<B: Backend + std::io::Write>(terminal: &mut Terminal<B>, app: &
                                 match key.code {
                                     KeyCode::Char('y') => {
                                         if let Some(i) = app.list_state.selected() {
-                                            if let Some(&(cell_idx, is_output)) = visual_items.get(i) {
+                                            if let Some(&cell_idx) = visual_items.get(i) {
                                                 if let Some(cell) = app.cells.get(cell_idx) {
-                                                    if !is_output {
-                                                        app.clipboard_cell = Some(cell.clone());
-                                                        app.status_message = Some("Cell yanked".to_string());
-                                                    } else if !cell.output.is_empty() {
-                                                        if let Ok(mut clipboard) = Clipboard::new() {
-                                                            if let Err(e) = clipboard.set_text(&cell.output) {
-                                                                app.status_message = Some(format!("Clipboard error: {}", e));
-                                                            } else {
-                                                                app.status_message = Some("Output copied to clipboard".to_string());
-                                                            }
-                                                        }
-                                                    }
+                                                    app.clipboard_cell = Some(cell.clone());
+                                                    app.status_message = Some("Cell yanked".to_string());
                                                 }
                                             }
                                         }
@@ -970,7 +953,7 @@ async fn run_app<B: Backend + std::io::Write>(terminal: &mut Terminal<B>, app: &
                                     KeyCode::Char('p') => {
                                         if let Some(cell) = &app.clipboard_cell {
                                             if let Some(i) = app.list_state.selected() {
-                                                if let Some(&(cell_idx, _)) = visual_items.get(i) {
+                                                if let Some(&cell_idx) = visual_items.get(i) {
                                                     let mut new_cell = cell.clone();
                                                     new_cell.id = uuid::Uuid::new_v4().to_string();
                                                     let idx = if app.cells.is_empty() { 0 } else { cell_idx + 1 };
@@ -984,7 +967,7 @@ async fn run_app<B: Backend + std::io::Write>(terminal: &mut Terminal<B>, app: &
                                     KeyCode::Char('P') => {
                                         if let Some(cell) = &app.clipboard_cell {
                                             if let Some(i) = app.list_state.selected() {
-                                                if let Some(&(cell_idx, _)) = visual_items.get(i) {
+                                                if let Some(&cell_idx) = visual_items.get(i) {
                                                     let mut new_cell = cell.clone();
                                                     new_cell.id = uuid::Uuid::new_v4().to_string();
                                                     app.cells.insert(cell_idx, new_cell);
@@ -1019,7 +1002,7 @@ async fn run_app<B: Backend + std::io::Write>(terminal: &mut Terminal<B>, app: &
                                     }
                                     KeyCode::Char('o') => {
                                         if let Some(i) = app.list_state.selected() {
-                                            if let Some(&(cell_idx, _)) = visual_items.get(i) {
+                                            if let Some(&cell_idx) = visual_items.get(i) {
                                                 let idx = if app.cells.is_empty() { 0 } else { cell_idx + 1 };
                                                 let type_to_add = if let Some(cell) = app.cells.get(cell_idx) {
                                                     cell.cell_type.clone()
@@ -1032,7 +1015,7 @@ async fn run_app<B: Backend + std::io::Write>(terminal: &mut Terminal<B>, app: &
                                     }
                                     KeyCode::Char('O') => {
                                         if let Some(i) = app.list_state.selected() {
-                                            if let Some(&(cell_idx, _)) = visual_items.get(i) {
+                                            if let Some(&cell_idx) = visual_items.get(i) {
                                                 let type_to_add = if let Some(cell) = app.cells.get(cell_idx) {
                                                     cell.cell_type.clone()
                                                 } else {
@@ -1058,7 +1041,7 @@ async fn run_app<B: Backend + std::io::Write>(terminal: &mut Terminal<B>, app: &
                                     KeyCode::Char('f') => {
                                         app.pending_delete = false;
                                         if let Some(i) = app.list_state.selected() {
-                                            if let Some(&(cell_idx, _)) = visual_items.get(i) {
+                                            if let Some(&cell_idx) = visual_items.get(i) {
                                                 let (cell_type, content) = if let Some(cell) = app.cells.get(cell_idx) {
                                                     (cell.cell_type.clone(), cell.content.clone())
                                                 } else {
@@ -1129,7 +1112,7 @@ async fn run_app<B: Backend + std::io::Write>(terminal: &mut Terminal<B>, app: &
                                         app.pending_delete = false;
                                         // Edit current cell
                                         if let Some(i) = app.list_state.selected() {
-                                            if let Some(&(cell_idx, _)) = visual_items.get(i) {
+                                            if let Some(&cell_idx) = visual_items.get(i) {
                                                 // Clone needed data to avoid holding borrow
                                                 let (cell_type, content) = if let Some(cell) = app.cells.get(cell_idx) {
                                                     (cell.cell_type.clone(), cell.content.clone())
@@ -1208,10 +1191,8 @@ async fn run_app<B: Backend + std::io::Write>(terminal: &mut Terminal<B>, app: &
                                     }
                                     KeyCode::Enter => {
                                          app.pending_delete = false;
-                                         // Run the selected cell or open output
                                          if let Some(i) = app.list_state.selected() {
-                                            let cell_idx = i / 2;
-                                            let is_output = i % 2 == 1;
+                                            let cell_idx = i;
                                             
                                             // Skip execution for Markdown
                                             if let Some(cell) = app.cells.get(cell_idx) {
@@ -1220,147 +1201,87 @@ async fn run_app<B: Backend + std::io::Write>(terminal: &mut Terminal<B>, app: &
                                                 }
                                             }
 
-                                            if is_output {
-                                                // Open output in editor
-                                                let content = if let Some(cell) = app.cells.get(cell_idx) {
-                                                    cell.output.clone()
-                                                } else {
-                                                    String::new()
-                                                };
+                                            let mut is_interactive = false;
+                                            let mut cmd_to_run = String::new();
+                                            let mut force_interactive = false;
 
-                                                let ext = ".txt";
-                                                
-                                                // Suspend TUI
-                                                let mut editor_cmd = app.editor.clone();
-                                                let is_code = editor_cmd.trim().starts_with("code");
-                                                if is_code && !editor_cmd.contains("--wait") && !editor_cmd.contains("-w") {
-                                                    editor_cmd.push_str(" --wait");
-                                                }
-
-                                                if !is_code {
-                                                    disable_raw_mode()?;
-                                                    execute!(terminal.backend_mut(), LeaveAlternateScreen, DisableMouseCapture)?;
-                                                } else {
-                                                    terminal.draw(|f| {
-                                                        let area = f.area();
-                                                        let popup_area = Rect::new(
-                                                            area.width / 2 - 25,
-                                                            area.height / 2 - 2,
-                                                            50,
-                                                            5,
-                                                        );
-                                                        f.render_widget(ratatui::widgets::Clear, popup_area);
-                                                        let block = Block::default().borders(Borders::ALL).title("External Editor");
-                                                        let text = Paragraph::new("Waiting for external editor...\nSave and close the file to return.\nOr press Enter to force return.")
-                                                            .block(block)
-                                                            .alignment(ratatui::layout::Alignment::Center);
-                                                        f.render_widget(text, popup_area);
-                                                    })?;
-                                                }
-                                                
-                                                let res = open_editor(&content, ext, &editor_cmd, is_code);
-                                                
-                                                // Resume TUI
-                                                if !is_code {
-                                                    execute!(terminal.backend_mut(), EnterAlternateScreen, EnableMouseCapture)?;
-                                                    enable_raw_mode()?;
-                                                }
-                                                terminal.clear()?; // Force redraw
-
-                                                match res {
-                                                    Ok(new_content) => {
-                                                        if let Some(cell) = app.cells.get_mut(cell_idx) {
-                                                            cell.output = new_content;
-                                                        }
-                                                    }
-                                                    Err(e) => {
-                                                        app.status_message = Some(format!("Editor error: {}", e));
-                                                    }
-                                                }
-                                            } else {
-                                                let mut is_interactive = false;
-                                                let mut cmd_to_run = String::new();
-                                                let mut force_interactive = false;
-
-                                                if let Some(cell) = app.cells.get(cell_idx) {
-                                                    if app.running_cells.contains(&cell_idx) {
-                                                        force_interactive = true;
-                                                        is_interactive = true;
-                                                        if cell.cell_type == CellType::Python {
-                                                            // Write to temp file
-                                                            if let Ok(mut file) = tempfile::Builder::new().suffix(".py").tempfile() {
-                                                                if write!(file, "{}", cell.content).is_ok() {
-                                                                    let _path = file.path().to_string_lossy().to_string();
-                                                                    // Keep file alive by persisting it? tempfile deletes on drop.
-                                                                    // We need to persist it or use a non-tempfile.
-                                                                    let (_, path) = file.keep().unwrap();
-                                                                    cmd_to_run = format!("python3 {}", path.to_string_lossy());
-                                                                }
+                                            if let Some(cell) = app.cells.get(cell_idx) {
+                                                if app.running_cells.contains(&cell_idx) {
+                                                    force_interactive = true;
+                                                    is_interactive = true;
+                                                    if cell.cell_type == CellType::Python {
+                                                        // Write to temp file
+                                                        if let Ok(mut file) = tempfile::Builder::new().suffix(".py").tempfile() {
+                                                            if write!(file, "{}", cell.content).is_ok() {
+                                                                // Keep file alive by persisting it
+                                                                let (_, path) = file.keep().unwrap();
+                                                                cmd_to_run = format!("python3 {}", path.to_string_lossy());
                                                             }
-                                                        } else {
-                                                            cmd_to_run = cell.content.clone();
                                                         }
-                                                    } else if cell.cell_type == CellType::Shell {
-                                                        let cmd = cell.content.trim();
-                                                        if cmd.starts_with("vi") || cmd.starts_with("vim") || cmd.starts_with("nano") {
-                                                            is_interactive = true;
-                                                            cmd_to_run = cell.content.clone();
-                                                        }
+                                                    } else {
+                                                        cmd_to_run = cell.content.clone();
+                                                    }
+                                                } else if cell.cell_type == CellType::Shell {
+                                                    let cmd = cell.content.trim();
+                                                    if cmd.starts_with("vi") || cmd.starts_with("vim") || cmd.starts_with("nano") {
+                                                        is_interactive = true;
+                                                        cmd_to_run = cell.content.clone();
                                                     }
                                                 }
+                                            }
 
-                                                if is_interactive {
-                                                    if force_interactive {
-                                                        app.running_cells.remove(&cell_idx);
-                                                        let _ = spawn_external_terminal(&cmd_to_run);
-                                                    } else {
-                                                        disable_raw_mode()?;
-                                                        execute!(terminal.backend_mut(), LeaveAlternateScreen)?;
-                                                        
-                                                        let _ = run_interactive(&cmd_to_run);
-                                                        
-                                                        execute!(terminal.backend_mut(), EnterAlternateScreen)?;
-                                                        enable_raw_mode()?;
-                                                        terminal.clear()?;
-                                                    }
-                                                                                                    } else if let Some(req) = app.get_run_request(cell_idx) {
-                                                                                                        // Ensure the current cell is visible by snapping list offset
-                                                                                                        if let Some(i) = app.list_state.selected() {
-                                                                                                            *app.list_state.offset_mut() = i;
-                                                                                                        }
-                                                
-                                                                                                        let client = client.clone();
-                                                                                                        let tx = tx.clone();
-                                                                                                        app.running_cells.insert(cell_idx);
-                                                
-                                                                                                        tokio::spawn(async move {                                                        let res = client.post("http://127.0.0.1:3030/exec")
-                                                            .json(&req)
-                                                            .send()
-                                                            .await;
+                                            if is_interactive {
+                                                if force_interactive {
+                                                    app.running_cells.remove(&cell_idx);
+                                                    let _ = spawn_external_terminal(&cmd_to_run);
+                                                } else {
+                                                    disable_raw_mode()?;
+                                                    execute!(terminal.backend_mut(), LeaveAlternateScreen)?;
+                                                    
+                                                    let _ = run_interactive(&cmd_to_run);
+                                                    
+                                                    execute!(terminal.backend_mut(), EnterAlternateScreen)?;
+                                                    enable_raw_mode()?;
+                                                    terminal.clear()?;
+                                                }
+                                            } else if let Some(req) = app.get_run_request(cell_idx) {
+                                                // Ensure the current cell is visible by snapping list offset
+                                                if let Some(i) = app.list_state.selected() {
+                                                    *app.list_state.offset_mut() = i;
+                                                }
+        
+                                                let client = client.clone();
+                                                let tx = tx.clone();
+                                                app.running_cells.insert(cell_idx);
+        
+                                                tokio::spawn(async move {
+                                                    let res = client.post("http://127.0.0.1:3030/exec")
+                                                        .json(&req)
+                                                        .send()
+                                                        .await;
 
-                                                        let output = match res {
-                                                            Ok(resp) => {
-                                                                if let Ok(body) = resp.json::<CommandResponse>().await {
-                                                                    let mut output = format!("{}{}", body.stdout, body.stderr);
-                                                                    if let Some(display_data) = body.display_data {
-                                                                        for data in display_data {
-                                                                            if let Some(image_path) = data.data.get("image/png").or(data.data.get("image/svg+xml")) {
-                                                                                if let Some(path_str) = image_path.as_str() {
-                                                                                    output.push_str(&format!("\n[Image: {}]", path_str));
-                                                                                }
+                                                    let output = match res {
+                                                        Ok(resp) => {
+                                                            if let Ok(body) = resp.json::<CommandResponse>().await {
+                                                                let mut output = format!("{}{}", body.stdout, body.stderr);
+                                                                if let Some(display_data) = body.display_data {
+                                                                    for data in display_data {
+                                                                        if let Some(image_path) = data.data.get("image/png").or(data.data.get("image/svg+xml")) {
+                                                                            if let Some(path_str) = image_path.as_str() {
+                                                                                output.push_str(&format!("\n[Image: {}]", path_str));
                                                                             }
                                                                         }
                                                                     }
-                                                                    output
-                                                                } else {
-                                                                    "Error parsing response".to_string()
                                                                 }
+                                                                output
+                                                            } else {
+                                                                "Error parsing response".to_string()
                                                             }
-                                                            Err(e) => format!("Error connecting to server: {}", e),
-                                                        };
-                                                        let _ = tx.send((cell_idx, output)).await;
-                                                    });
-                                                }
+                                                        }
+                                                        Err(e) => format!("Error connecting to server: {}", e),
+                                                    };
+                                                    let _ = tx.send((cell_idx, output)).await;
+                                                });
                                             }
                                          }
                                     }
@@ -2123,146 +2044,138 @@ fn ui(f: &mut Frame, app: &App) {
     let mut list_items = Vec::new();
     let visual_items = app.get_visual_items();
 
-    for (visual_idx, &(i, is_output)) in visual_items.iter().enumerate() {
+    for &i in visual_items.iter() {
         let cell = &app.cells[i];
+        let mut cell_lines = Vec::new();
         
-        if !is_output {
-            // Input Item
-            let header = match cell.cell_type {
-                CellType::Shell => "Shell",
-                CellType::Rust => "Rust",
-                CellType::Python => "Python",
-                CellType::JavaScript => "JavaScript",
-                CellType::TypeScript => "TypeScript",
-                CellType::C => "C",
-                CellType::Cpp => "C++",
-                CellType::Go => "Go",
-                CellType::Markdown => "Markdown",
-            };
-            
-            let countdown = if let Some(interval) = cell.polling_interval {
-                if let Some(last) = cell.last_run {
-                    let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_secs();
-                    let next_run = last + interval;
-                    if next_run > now {
-                        format!(" Executing in {}s...", next_run - now)
-                    } else {
-                        " Executing...".to_string()
-                    }
+        // Input Section
+        let header = match cell.cell_type {
+            CellType::Shell => "Shell",
+            CellType::Rust => "Rust",
+            CellType::Python => "Python",
+            CellType::JavaScript => "JavaScript",
+            CellType::TypeScript => "TypeScript",
+            CellType::C => "C",
+            CellType::Cpp => "C++",
+            CellType::Go => "Go",
+            CellType::Markdown => "Markdown",
+        };
+        
+        let countdown = if let Some(interval) = cell.polling_interval {
+            if let Some(last) = cell.last_run {
+                let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_secs();
+                let next_run = last + interval;
+                if next_run > now {
+                    format!(" Executing in {}s...", next_run - now)
                 } else {
                     " Executing...".to_string()
                 }
             } else {
-                "".to_string()
-            };
+                " Executing...".to_string()
+            }
+        } else {
+            "".to_string()
+        };
 
-            let style = if Some(visual_idx) == app.list_state.selected() && app.focus == Focus::Editor {
-                Style::default().fg(app.accent_color).add_modifier(Modifier::BOLD)
-            } else {
-                Style::default()
-            };
+        let is_selected = Some(i) == app.list_state.selected() && app.focus == Focus::Editor;
+        let style = if is_selected {
+            Style::default().fg(app.accent_color).add_modifier(Modifier::BOLD)
+        } else {
+            Style::default()
+        };
 
-            let header_str = format!("[{}]{}", header, countdown);
-            let width = editor_area.width as usize;
-            let padding_len = width.saturating_sub(3 + header_str.len()).saturating_sub(2);
-            let padding = " ".repeat(padding_len);
+        let header_str = format!("[{}]{}", header, countdown);
+        let width = editor_area.width as usize;
+        let padding_len = width.saturating_sub(3 + header_str.len()).saturating_sub(2);
+        let padding = " ".repeat(padding_len);
 
-            let lines = if cell.cell_type == CellType::Markdown {
-                 let is_editing_this = app.input_mode == InputMode::Editing && app.list_state.selected() == Some(visual_idx);
-                 
-                 if is_editing_this {
-                     let mut lines = vec![
-                        Line::from(vec![
-                            Span::styled("In:", style),
-                            Span::raw(padding.clone()),
-                            Span::styled(header_str.clone(), style),
-                        ])
-                     ];
-                     if cell.content.is_empty() {
-                         lines.push(Line::from("     (empty)"));
-                     } else {
-                         for line in cell.content.lines() {
-                             lines.push(Line::from(format!("     {}", line)));
-                         }
-                     }
-                     lines
-                 } else {
-                     let preview_padding_len = width.saturating_sub(header_str.len()).saturating_sub(2);
-                     let preview_padding = " ".repeat(preview_padding_len);
-                     let mut preview_lines = vec![
-                        Line::from(vec![
-                            Span::raw(preview_padding),
-                            Span::styled(header_str.clone(), style),
-                        ])
-                     ];
-                     if cell.content.is_empty() {
-                         preview_lines.push(Line::from("(empty)"));
-                     } else {
-                         for line in cell.content.lines() {
-                             if line.starts_with("# ") {
-                                 preview_lines.push(Line::from(Span::styled(line, Style::default().fg(Color::Blue).add_modifier(Modifier::BOLD))));
-                             } else if line.starts_with("## ") {
-                                 preview_lines.push(Line::from(Span::styled(line, Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD))));
-                             } else if line.starts_with("### ") {
-                                 preview_lines.push(Line::from(Span::styled(line, Style::default().fg(Color::Green).add_modifier(Modifier::BOLD))));
-                             } else if line.starts_with("- ") || line.starts_with("* ") {
-                                 preview_lines.push(Line::from(format!("  • {}", &line[2..])));
-                             } else {
-                                 preview_lines.push(Line::from(line));
-                             }
-                         }
-                     }
-                     preview_lines
-                 }
-            } else {
-                 let mut lines = vec![
-                    Line::from(vec![
-                        Span::styled("In:", style),
-                        Span::raw(padding),
-                        Span::styled(header_str, style),
-                    ])
-                 ];
+        if cell.cell_type == CellType::Markdown {
+             let is_editing_this = app.input_mode == InputMode::Editing && is_selected;
+             
+             if is_editing_this {
+                 cell_lines.push(Line::from(vec![
+                    Span::styled("In:", style),
+                    Span::raw(padding.clone()),
+                    Span::styled(header_str.clone(), style),
+                ]));
                  if cell.content.is_empty() {
-                     lines.push(Line::from("     (empty)"));
+                     cell_lines.push(Line::from("     (empty)"));
                  } else {
                      for line in cell.content.lines() {
-                         lines.push(Line::from(format!("     {}", line)));
+                         cell_lines.push(Line::from(format!("     {}", line)));
                      }
                  }
-                 lines
-            };
-            list_items.push(ListItem::new(lines));
+             } else {
+                 let preview_padding_len = width.saturating_sub(header_str.len()).saturating_sub(2);
+                 let preview_padding = " ".repeat(preview_padding_len);
+                 cell_lines.push(Line::from(vec![
+                    Span::raw(preview_padding),
+                    Span::styled(header_str.clone(), style),
+                ]));
+                 if cell.content.is_empty() {
+                     cell_lines.push(Line::from("(empty)"));
+                 } else {
+                     for line in cell.content.lines() {
+                         if line.starts_with("# ") {
+                             cell_lines.push(Line::from(Span::styled(line, Style::default().fg(Color::Blue).add_modifier(Modifier::BOLD))));
+                         } else if line.starts_with("## ") {
+                             cell_lines.push(Line::from(Span::styled(line, Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD))));
+                         } else if line.starts_with("### ") {
+                             cell_lines.push(Line::from(Span::styled(line, Style::default().fg(Color::Green).add_modifier(Modifier::BOLD))));
+                         } else if line.starts_with("- ") || line.starts_with("* ") {
+                             cell_lines.push(Line::from(format!("  • {}", &line[2..])));
+                         } else {
+                             cell_lines.push(Line::from(line));
+                         }
+                     }
+                 }
+             }
         } else {
-            // Output Item
-            let output_style = if Some(visual_idx) == app.list_state.selected() && app.focus == Focus::Editor {
+             cell_lines.push(Line::from(vec![
+                Span::styled("In:", style),
+                Span::raw(padding),
+                Span::styled(header_str, style),
+            ]));
+             if cell.content.is_empty() {
+                 cell_lines.push(Line::from("     (empty)"));
+             } else {
+                 for line in cell.content.lines() {
+                     cell_lines.push(Line::from(format!("     {}", line)));
+                 }
+             }
+        };
+        
+        // Output Section (combined)
+        if cell.cell_type != CellType::Markdown {
+            cell_lines.push(Line::from("")); // Spacer between input and output
+            
+            let output_style = if is_selected {
                 Style::default().fg(app.accent_color).add_modifier(Modifier::BOLD)
             } else {
                 Style::default()
             };
 
-            let mut output_lines = vec![];
             if !cell.output.is_empty() {
-                output_lines.push(Line::from
-                    (Span::styled("Out:", output_style)));
+                cell_lines.push(Line::from(Span::styled("Out:", output_style)));
                 let lines: Vec<&str> = cell.output.lines().collect();
                 if lines.len() > 10 {
                     for line in lines.iter().take(10) {
-                        output_lines.push(Line::from(format!("     {}", line)));
+                        cell_lines.push(Line::from(format!("     {}", line)));
                     }
-                    output_lines.push(Line::from("     ....."));
+                    cell_lines.push(Line::from("     ....."));
                 } else {
                     for line in lines {
-                        output_lines.push(Line::from(format!("     {}", line)));
+                        cell_lines.push(Line::from(format!("     {}", line)));
                     }
                 }
             } else {
-                 output_lines.push(Line::from(Span::styled("Out:", output_style)));
-                 output_lines.push(Line::from("     (empty)"));
+                 cell_lines.push(Line::from(Span::styled("Out:", output_style)));
+                 cell_lines.push(Line::from("     (empty)"));
             }
-            output_lines.push(Line::from("")); // Spacer
-            
-            list_items.push(ListItem::new(output_lines));
         }
+        
+        cell_lines.push(Line::from("")); // Bottom spacer
+        list_items.push(ListItem::new(cell_lines));
     }
 
     let list = List::new(list_items)
@@ -2275,9 +2188,9 @@ fn ui(f: &mut Frame, app: &App) {
     match app.input_mode {
         InputMode::Editing => {
             if let Some(i) = app.list_state.selected() {
-                if let Some(cell) = app.cells.get(i / 2) {
+                if let Some(cell) = app.cells.get(i) {
                     if cell.cell_type == CellType::Shell {
-                        let area = editor_area; // Use editor area for input positioning
+                        let area = editor_area; 
                         let input_area = Rect::new(area.x, area.y + area.height.saturating_sub(3), area.width, 3);
                         f.render_widget(ratatui::widgets::Clear, input_area);
                         
@@ -2304,6 +2217,7 @@ fn ui(f: &mut Frame, app: &App) {
                 .style(Style::default().fg(Color::Magenta));
             f.render_widget(input_block, bottom_bar_area);
         }
+
         InputMode::Normal => {
                 let status = if let Some(msg) = &app.status_message {
                     msg.clone()
