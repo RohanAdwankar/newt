@@ -2771,8 +2771,22 @@ fn ui(f: &mut Frame, app: &App) {
     let list = List::new(list_items)
         .block(Block::default().borders(Borders::NONE))
         .highlight_style(Style::default().add_modifier(Modifier::BOLD));
-        
-    f.render_stateful_widget(list, editor_area, &mut app.list_state.clone());
+
+    // Manage scroll offset to fill viewport
+    // This ensures cells below the selected one are visible if there's space
+    let mut list_state = app.list_state.clone();
+    if let Some(selected) = list_state.selected() {
+        // Keep selected item in upper portion of viewport (with 2 items of context above)
+        // This allows showing both context above and content below to fill the viewport
+        let desired_offset = if selected > 2 {
+            selected.saturating_sub(2)
+        } else {
+            0
+        };
+        *list_state.offset_mut() = desired_offset;
+    }
+
+    f.render_stateful_widget(list, editor_area, &mut list_state);
 
     // Input box / Command bar
     match app.input_mode {
