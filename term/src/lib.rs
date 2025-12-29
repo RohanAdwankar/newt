@@ -583,6 +583,17 @@ impl App {
             }
         }
     }
+
+    pub fn get_visual_items(&self) -> Vec<(usize, bool)> {
+        let mut items = Vec::new();
+        for (i, cell) in self.cells.iter().enumerate() {
+            items.push((i, false)); // Input
+            if cell.cell_type != CellType::Markdown {
+                items.push((i, true)); // Output
+            }
+        }
+        items
+    }
 }
 
 fn get_app_dir() -> PathBuf {
@@ -854,16 +865,24 @@ async fn run_app<B: Backend + std::io::Write>(terminal: &mut Terminal<B>, app: &
                                                                 cmd.arg(&path_str);
                                                                 
                                                                 if !is_code {
+                                                                     // For terminal editors (vi), wait for it
                                                                      let _ = cmd.status();
                                                                 } else {
-                                                                     let _ = cmd.spawn();
+                                                                     // For GUI editors (code --wait), also wait!
+                                                                     // If we spawn, it returns immediately and flashes.
+                                                                     // code --wait blocks until file is closed.
+                                                                     let _ = cmd.status();
                                                                 }
                                                             }
                                                             
                                                             if !is_code {
                                                                 execute!(terminal.backend_mut(), EnterAlternateScreen, EnableMouseCapture)?;
                                                                 enable_raw_mode()?;
-                                                                terminal.clear()?;
+                                                                terminal.clear()?; // Force redraw
+                                                            }
+                                                            // If is_code (GUI), we also need to redraw because it might have covered the screen
+                                                            if is_code {
+                                                                terminal.clear()?; 
                                                             }
                                                         }
                                                     }
@@ -957,20 +976,22 @@ async fn run_app<B: Backend + std::io::Write>(terminal: &mut Terminal<B>, app: &
                                 }
                             }
                             Focus::Editor => {
+                                let visual_items = app.get_visual_items();
                                 match key.code {
                                     KeyCode::Char('y') => {
                                         if let Some(i) = app.list_state.selected() {
-                                            let cell_idx = i / 2;
-                                            if let Some(cell) = app.cells.get(cell_idx) {
-                                                if i % 2 == 0 {
-                                                    app.clipboard_cell = Some(cell.clone());
-                                                    app.status_message = Some("Cell yanked".to_string());
-                                                } else if !cell.output.is_empty() {
-                                                    if let Ok(mut clipboard) = Clipboard::new() {
-                                                        if let Err(e) = clipboard.set_text(&cell.output) {
-                                                            app.status_message = Some(format!("Clipboard error: {}", e));
-                                                        } else {
-                                                            app.status_message = Some("Output copied to clipboard".to_string());
+                                            if let Some(&(cell_idx, is_output)) = visual_items.get(i) {
+                                                if let Some(cell) = app.cells.get(cell_idx) {
+                                                    if !is_output {
+                                                        app.clipboard_cell = Some(cell.clone());
+                                                        app.status_message = Some("Cell yanked".to_string());
+                                                    } else if !cell.output.is_empty() {
+                                                        if let Ok(mut clipboard) = Clipboard::new() {
+                                                            if let Err(e) = clipboard.set_text(&cell.output) {
+                                                                app.status_message = Some(format!("Clipboard error: {}", e));
+                                                            } else {
+                                                                app.status_message = Some("Output copied to clipboard".to_string());
+                                                            }
                                                         }
                                                     }
                                                 }
@@ -980,23 +1001,27 @@ async fn run_app<B: Backend + std::io::Write>(terminal: &mut Terminal<B>, app: &
                                     KeyCode::Char('p') => {
                                         if let Some(cell) = &app.clipboard_cell {
                                             if let Some(i) = app.list_state.selected() {
-                                                let mut new_cell = cell.clone();
-                                                new_cell.id = uuid::Uuid::new_v4().to_string();
-                                                let idx = if app.cells.is_empty() { 0 } else { (i / 2) + 1 };
-                                                app.cells.insert(idx, new_cell);
-                                                app.status_message = Some("Cell pasted".to_string());
-                                                app.dirty = true;
+                                                if let Some(&(cell_idx, _)) = visual_items.get(i) {
+                                                    let mut new_cell = cell.clone();
+                                                    new_cell.id = uuid::Uuid::new_v4().to_string();
+                                                    let idx = if app.cells.is_empty() { 0 } else { cell_idx + 1 };
+                                                    app.cells.insert(idx, new_cell);
+                                                    app.status_message = Some("Cell pasted".to_string());
+                                                    app.dirty = true;
+                                                }
                                             }
                                         }
                                     }
                                     KeyCode::Char('P') => {
                                         if let Some(cell) = &app.clipboard_cell {
                                             if let Some(i) = app.list_state.selected() {
-                                                let mut new_cell = cell.clone();
-                                                new_cell.id = uuid::Uuid::new_v4().to_string();
-                                                app.cells.insert(i / 2, new_cell);
-                                                app.status_message = Some("Cell pasted above".to_string());
-                                                app.dirty = true;
+                                                if let Some(&(cell_idx, _)) = visual_items.get(i) {
+                                                    let mut new_cell = cell.clone();
+                                                    new_cell.id = uuid::Uuid::new_v4().to_string();
+                                                    app.cells.insert(cell_idx, new_cell);
+                                                    app.status_message = Some("Cell pasted above".to_string());
+                                                    app.dirty = true;
+                                                }
                                             }
                                         }
                                     }
@@ -1006,7 +1031,7 @@ async fn run_app<B: Backend + std::io::Write>(terminal: &mut Terminal<B>, app: &
                                     }
                                     KeyCode::Char('j') => {
                                         if let Some(i) = app.list_state.selected() {
-                                            if !app.cells.is_empty() && i < app.cells.len() * 2 - 1 {
+                                            if i < visual_items.len().saturating_sub(1) {
                                                 app.list_state.select(Some(i + 1));
                                             }
                                         }
@@ -1025,23 +1050,27 @@ async fn run_app<B: Backend + std::io::Write>(terminal: &mut Terminal<B>, app: &
                                     }
                                     KeyCode::Char('o') => {
                                         if let Some(i) = app.list_state.selected() {
-                                            let idx = if app.cells.is_empty() { 0 } else { (i / 2) + 1 };
-                                            let type_to_add = if let Some(cell) = app.cells.get(i / 2) {
-                                                cell.cell_type.clone()
-                                            } else {
-                                                CellType::Shell
-                                            };
-                                            app.insert_cell(idx, type_to_add);
+                                            if let Some(&(cell_idx, _)) = visual_items.get(i) {
+                                                let idx = if app.cells.is_empty() { 0 } else { cell_idx + 1 };
+                                                let type_to_add = if let Some(cell) = app.cells.get(cell_idx) {
+                                                    cell.cell_type.clone()
+                                                } else {
+                                                    CellType::Shell
+                                                };
+                                                app.insert_cell(idx, type_to_add);
+                                            }
                                         }
                                     }
                                     KeyCode::Char('O') => {
                                         if let Some(i) = app.list_state.selected() {
-                                            let type_to_add = if let Some(cell) = app.cells.get(i / 2) {
-                                                cell.cell_type.clone()
-                                            } else {
-                                                CellType::Shell
-                                            };
-                                            app.insert_cell(i / 2, type_to_add);
+                                            if let Some(&(cell_idx, _)) = visual_items.get(i) {
+                                                let type_to_add = if let Some(cell) = app.cells.get(cell_idx) {
+                                                    cell.cell_type.clone()
+                                                } else {
+                                                    CellType::Shell
+                                                };
+                                                app.insert_cell(cell_idx, type_to_add);
+                                            }
                                         }
                                     }
                                     KeyCode::Char('d') => {
@@ -1060,68 +1089,69 @@ async fn run_app<B: Backend + std::io::Write>(terminal: &mut Terminal<B>, app: &
                                     KeyCode::Char('f') => {
                                         app.pending_delete = false;
                                         if let Some(i) = app.list_state.selected() {
-                                            let cell_idx = i / 2;
-                                            let (cell_type, content) = if let Some(cell) = app.cells.get(cell_idx) {
-                                                (cell.cell_type.clone(), cell.content.clone())
-                                            } else {
-                                                continue;
-                                            };
+                                            if let Some(&(cell_idx, _)) = visual_items.get(i) {
+                                                let (cell_type, content) = if let Some(cell) = app.cells.get(cell_idx) {
+                                                    (cell.cell_type.clone(), cell.content.clone())
+                                                } else {
+                                                    continue;
+                                                };
 
-                                            let ext = match cell_type {
-                                                CellType::Rust => ".rs",
-                                                CellType::Python => ".py",
-                                                CellType::JavaScript => ".js",
-                                                CellType::TypeScript => ".ts",
-                                                CellType::C => ".c",
-                                                CellType::Cpp => ".cpp",
-                                                CellType::Go => ".go",
-                                                CellType::Shell => ".sh",
-                                                CellType::Markdown => ".md",
-                                            };
+                                                let ext = match cell_type {
+                                                    CellType::Rust => ".rs",
+                                                    CellType::Python => ".py",
+                                                    CellType::JavaScript => ".js",
+                                                    CellType::TypeScript => ".ts",
+                                                    CellType::C => ".c",
+                                                    CellType::Cpp => ".cpp",
+                                                    CellType::Go => ".go",
+                                                    CellType::Shell => ".sh",
+                                                    CellType::Markdown => ".md",
+                                                };
 
-                                            // Suspend TUI
-                                            let mut editor_cmd = app.editor.clone();
-                                            let is_code = editor_cmd.trim().starts_with("code");
-                                            if is_code && !editor_cmd.contains("--wait") && !editor_cmd.contains("-w") {
-                                                editor_cmd.push_str(" --wait");
-                                            }
-
-                                            if !is_code {
-                                                disable_raw_mode()?;
-                                                execute!(terminal.backend_mut(), LeaveAlternateScreen, DisableMouseCapture)?;
-                                            } else {
-                                                terminal.draw(|f| {
-                                                    let area = f.area();
-                                                    let popup_area = Rect::new(
-                                                        area.width / 2 - 25,
-                                                        area.height / 2 - 2,
-                                                        50,
-                                                        5,
-                                                    );
-                                                    f.render_widget(ratatui::widgets::Clear, popup_area);
-                                                    let block = Block::default().borders(Borders::ALL).title("External Editor");
-                                                    let text = Paragraph::new("Waiting for external editor...\nSave and close the file to return.\nOr press Enter to force return.")
-                                                        .block(block)
-                                                        .alignment(ratatui::layout::Alignment::Center);
-                                                    f.render_widget(text, popup_area);
-                                                })?;
-                                            }
-                                            
-                                            let res = open_editor(&content, ext, &editor_cmd, is_code);
-                                            
-                                            // Resume TUI
-                                            if !is_code {
-                                                execute!(terminal.backend_mut(), EnterAlternateScreen, EnableMouseCapture)?;
-                                                enable_raw_mode()?;
-                                            }
-                                            terminal.clear()?; // Force redraw
-
-                                            match res {
-                                                Ok(new_content) => {
-                                                    app.handle_editor_result(cell_idx, new_content);
+                                                // Suspend TUI
+                                                let mut editor_cmd = app.editor.clone();
+                                                let is_code = editor_cmd.trim().starts_with("code");
+                                                if is_code && !editor_cmd.contains("--wait") && !editor_cmd.contains("-w") {
+                                                    editor_cmd.push_str(" --wait");
                                                 }
-                                                Err(e) => {
-                                                    app.status_message = Some(format!("Editor error: {}", e));
+
+                                                if !is_code {
+                                                    disable_raw_mode()?;
+                                                    execute!(terminal.backend_mut(), LeaveAlternateScreen, DisableMouseCapture)?;
+                                                } else {
+                                                    terminal.draw(|f| {
+                                                        let area = f.area();
+                                                        let popup_area = Rect::new(
+                                                            area.width / 2 - 25,
+                                                            area.height / 2 - 2,
+                                                            50,
+                                                            5,
+                                                        );
+                                                        f.render_widget(ratatui::widgets::Clear, popup_area);
+                                                        let block = Block::default().borders(Borders::ALL).title("External Editor");
+                                                        let text = Paragraph::new("Waiting for external editor...\nSave and close the file to return.\nOr press Enter to force return.")
+                                                            .block(block)
+                                                            .alignment(ratatui::layout::Alignment::Center);
+                                                        f.render_widget(text, popup_area);
+                                                    })?;
+                                                }
+                                                
+                                                let res = open_editor(&content, ext, &editor_cmd, is_code);
+                                                
+                                                // Resume TUI
+                                                if !is_code {
+                                                    execute!(terminal.backend_mut(), EnterAlternateScreen, EnableMouseCapture)?;
+                                                    enable_raw_mode()?;
+                                                }
+                                                terminal.clear()?; // Force redraw
+
+                                                match res {
+                                                    Ok(new_content) => {
+                                                        app.handle_editor_result(cell_idx, new_content);
+                                                    }
+                                                    Err(e) => {
+                                                        app.status_message = Some(format!("Editor error: {}", e));
+                                                    }
                                                 }
                                             }
                                         }
@@ -1130,76 +1160,77 @@ async fn run_app<B: Backend + std::io::Write>(terminal: &mut Terminal<B>, app: &
                                         app.pending_delete = false;
                                         // Edit current cell
                                         if let Some(i) = app.list_state.selected() {
-                                            let cell_idx = i / 2;
-                                            // Clone needed data to avoid holding borrow
-                                            let (cell_type, content) = if let Some(cell) = app.cells.get(cell_idx) {
-                                                (cell.cell_type.clone(), cell.content.clone())
-                                            } else {
-                                                continue;
-                                            };
+                                            if let Some(&(cell_idx, _)) = visual_items.get(i) {
+                                                // Clone needed data to avoid holding borrow
+                                                let (cell_type, content) = if let Some(cell) = app.cells.get(cell_idx) {
+                                                    (cell.cell_type.clone(), cell.content.clone())
+                                                } else {
+                                                    continue;
+                                                };
 
-                                            match cell_type {
-                                                CellType::Shell => {
-                                                    app.input = content;
-                                                    app.input_mode = InputMode::Editing;
-                                                }
-                                                _ => {
-                                                    // Open editor for all code cells
-                                                    let ext = match cell_type {
-                                                        CellType::Rust => ".rs",
-                                                        CellType::Python => ".py",
-                                                        CellType::JavaScript => ".js",
-                                                        CellType::TypeScript => ".ts",
-                                                        CellType::C => ".c",
-                                                        CellType::Cpp => ".cpp",
-                                                        CellType::Go => ".go",
-                                                        CellType::Shell => ".sh",
-                                                        CellType::Markdown => ".md",
-                                                    };
-                                                    
-                                                    // Suspend TUI
-                                                    let mut editor_cmd = app.editor.clone();
-                                                    let is_code = editor_cmd.trim().starts_with("code");
-                                                    if is_code && !editor_cmd.contains("--wait") && !editor_cmd.contains("-w") {
-                                                        editor_cmd.push_str(" --wait");
+                                                match cell_type {
+                                                    CellType::Shell => {
+                                                        app.input = content;
+                                                        app.input_mode = InputMode::Editing;
                                                     }
-
-                                                    if !is_code {
-                                                        disable_raw_mode()?;
-                                                        execute!(terminal.backend_mut(), LeaveAlternateScreen, DisableMouseCapture)?;
-                                                    } else {
-                                                        terminal.draw(|f| {
-                                                            let area = f.area();
-                                                            let popup_area = Rect::new(
-                                                                area.width / 2 - 25,
-                                                                area.height / 2 - 2,
-                                                                50,
-                                                                5,
-                                                            );
-                                                            f.render_widget(ratatui::widgets::Clear, popup_area);
-                                                            let block = Block::default().borders(Borders::ALL).title("External Editor");
-                                                            let text = Paragraph::new("Waiting for external editor...\nSave and close the file to return.\nOr press Enter to force return.")
-                                                                .block(block)
-                                                                .alignment(ratatui::layout::Alignment::Center);
-                                                            f.render_widget(text, popup_area);
-                                                        })?;
-                                                    }
-                                                    
-                                                    let res = open_editor(&content, ext, &editor_cmd, is_code);
-                                                    
-                                                    // Resume TUI
-                                                    if !is_code {
-                                                        execute!(terminal.backend_mut(), EnterAlternateScreen, EnableMouseCapture)?;
-                                                        enable_raw_mode()?;
-                                                    }
-                                                    terminal.clear()?; // Force redraw
-
-                                                    match res {
-                                                        Ok(new_content) => {
-                                                            app.handle_editor_result(cell_idx, new_content);
+                                                    _ => {
+                                                        // Open editor for all code cells
+                                                        let ext = match cell_type {
+                                                            CellType::Rust => ".rs",
+                                                            CellType::Python => ".py",
+                                                            CellType::JavaScript => ".js",
+                                                            CellType::TypeScript => ".ts",
+                                                            CellType::C => ".c",
+                                                            CellType::Cpp => ".cpp",
+                                                            CellType::Go => ".go",
+                                                            CellType::Shell => ".sh",
+                                                            CellType::Markdown => ".md",
+                                                        };
+                                                        
+                                                        // Suspend TUI
+                                                        let mut editor_cmd = app.editor.clone();
+                                                        let is_code = editor_cmd.trim().starts_with("code");
+                                                        if is_code && !editor_cmd.contains("--wait") && !editor_cmd.contains("-w") {
+                                                            editor_cmd.push_str(" --wait");
                                                         }
-                                                        Err(e) => {
-                                                            app.status_message = Some(format!("Editor error: {}", e));
+
+                                                        if !is_code {
+                                                            disable_raw_mode()?;
+                                                            execute!(terminal.backend_mut(), LeaveAlternateScreen, DisableMouseCapture)?;
+                                                        } else {
+                                                            terminal.draw(|f| {
+                                                                let area = f.area();
+                                                                let popup_area = Rect::new(
+                                                                    area.width / 2 - 25,
+                                                                    area.height / 2 - 2,
+                                                                    50,
+                                                                    5,
+                                                                );
+                                                                f.render_widget(ratatui::widgets::Clear, popup_area);
+                                                                let block = Block::default().borders(Borders::ALL).title("External Editor");
+                                                                let text = Paragraph::new("Waiting for external editor...\nSave and close the file to return.\nOr press Enter to force return.")
+                                                                    .block(block)
+                                                                    .alignment(ratatui::layout::Alignment::Center);
+                                                                f.render_widget(text, popup_area);
+                                                            })?;
+                                                        }
+                                                        
+                                                        let res = open_editor(&content, ext, &editor_cmd, is_code);
+                                                        
+                                                        // Resume TUI
+                                                        if !is_code {
+                                                            execute!(terminal.backend_mut(), EnterAlternateScreen, EnableMouseCapture)?;
+                                                            enable_raw_mode()?;
+                                                        }
+                                                        terminal.clear()?; // Force redraw
+
+                                                        match res {
+                                                            Ok(new_content) => {
+                                                                app.handle_editor_result(cell_idx, new_content);
+                                                            }
+                                                            Err(e) => {
+                                                                app.status_message = Some(format!("Editor error: {}", e));
+                                                            }
                                                         }
                                                     }
                                                 }
@@ -2076,56 +2107,105 @@ fn ui(f: &mut Frame, app: &App) {
     let editor_area = content_chunks.1;
     
     let mut list_items = Vec::new();
-    for (i, cell) in app.cells.iter().enumerate() {
-        // Input Item
-        let header = match cell.cell_type {
-            CellType::Shell => "Shell",
-            CellType::Rust => "Rust",
-            CellType::Python => "Python",
-            CellType::JavaScript => "JavaScript",
-            CellType::TypeScript => "TypeScript",
-            CellType::C => "C",
-            CellType::Cpp => "C++",
-            CellType::Go => "Go",
-            CellType::Markdown => "Markdown",
-        };
+    let visual_items = app.get_visual_items();
+
+    for (visual_idx, &(i, is_output)) in visual_items.iter().enumerate() {
+        let cell = &app.cells[i];
         
-        let countdown = if let Some(interval) = cell.polling_interval {
-            if let Some(last) = cell.last_run {
-                let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_secs();
-                let next_run = last + interval;
-                if next_run > now {
-                    format!(" Executing in {}s...", next_run - now)
+        if !is_output {
+            // Input Item
+            let header = match cell.cell_type {
+                CellType::Shell => "Shell",
+                CellType::Rust => "Rust",
+                CellType::Python => "Python",
+                CellType::JavaScript => "JavaScript",
+                CellType::TypeScript => "TypeScript",
+                CellType::C => "C",
+                CellType::Cpp => "C++",
+                CellType::Go => "Go",
+                CellType::Markdown => "Markdown",
+            };
+            
+            let countdown = if let Some(interval) = cell.polling_interval {
+                if let Some(last) = cell.last_run {
+                    let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_secs();
+                    let next_run = last + interval;
+                    if next_run > now {
+                        format!(" Executing in {}s...", next_run - now)
+                    } else {
+                        " Executing...".to_string()
+                    }
                 } else {
                     " Executing...".to_string()
                 }
             } else {
-                " Executing...".to_string()
-            }
-        } else {
-            "".to_string()
-        };
+                "".to_string()
+            };
 
-        let style = if Some(i * 2) == app.list_state.selected() && app.focus == Focus::Editor {
-            Style::default().fg(app.accent_color).add_modifier(Modifier::BOLD)
-        } else {
-            Style::default()
-        };
+            let style = if Some(visual_idx) == app.list_state.selected() && app.focus == Focus::Editor {
+                Style::default().fg(app.accent_color).add_modifier(Modifier::BOLD)
+            } else {
+                Style::default()
+            };
 
-        let header_str = format!("[{}]{}", header, countdown);
-        let width = editor_area.width as usize;
-        let padding_len = width.saturating_sub(3 + header_str.len()).saturating_sub(2);
-        let padding = " ".repeat(padding_len);
+            let header_str = format!("[{}]{}", header, countdown);
+            let width = editor_area.width as usize;
+            let padding_len = width.saturating_sub(3 + header_str.len()).saturating_sub(2);
+            let padding = " ".repeat(padding_len);
 
-        let lines = if cell.cell_type == CellType::Markdown {
-             let is_editing_this = app.input_mode == InputMode::Editing && app.list_state.selected() == Some(i * 2);
-             
-             if is_editing_this {
+            let lines = if cell.cell_type == CellType::Markdown {
+                 let is_editing_this = app.input_mode == InputMode::Editing && app.list_state.selected() == Some(visual_idx);
+                 
+                 if is_editing_this {
+                     let mut lines = vec![
+                        Line::from(vec![
+                            Span::styled("In:", style),
+                            Span::raw(padding.clone()),
+                            Span::styled(header_str.clone(), style),
+                        ])
+                     ];
+                     if cell.content.is_empty() {
+                         lines.push(Line::from("     (empty)"));
+                     } else {
+                         for line in cell.content.lines() {
+                             lines.push(Line::from(format!("     {}", line)));
+                         }
+                     }
+                     lines
+                 } else {
+                     let preview_padding_len = width.saturating_sub(header_str.len()).saturating_sub(2);
+                     let preview_padding = " ".repeat(preview_padding_len);
+                     let mut preview_lines = vec![
+                        Line::from(vec![
+                            Span::raw(preview_padding),
+                            Span::styled(header_str.clone(), style),
+                        ])
+                     ];
+                     if cell.content.is_empty() {
+                         preview_lines.push(Line::from("(empty)"));
+                     } else {
+                         for line in cell.content.lines() {
+                             if line.starts_with("# ") {
+                                 preview_lines.push(Line::from(Span::styled(line, Style::default().fg(Color::Blue).add_modifier(Modifier::BOLD))));
+                             } else if line.starts_with("## ") {
+                                 preview_lines.push(Line::from(Span::styled(line, Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD))));
+                             } else if line.starts_with("### ") {
+                                 preview_lines.push(Line::from(Span::styled(line, Style::default().fg(Color::Green).add_modifier(Modifier::BOLD))));
+                             } else if line.starts_with("- ") || line.starts_with("* ") {
+                                 preview_lines.push(Line::from(format!("  • {}", &line[2..])));
+                             } else {
+                                 preview_lines.push(Line::from(line));
+                             }
+                         }
+                     }
+                     preview_lines
+                 }
+            } else {
                  let mut lines = vec![
                     Line::from(vec![
                         Span::styled("In:", style),
-                        Span::raw(padding.clone()),
-                        Span::styled(header_str.clone(), style),
+                        Span::raw(padding),
+                        Span::styled(header_str, style),
                     ])
                  ];
                  if cell.content.is_empty() {
@@ -2136,62 +2216,17 @@ fn ui(f: &mut Frame, app: &App) {
                      }
                  }
                  lines
-             } else {
-                 let preview_padding_len = width.saturating_sub(header_str.len()).saturating_sub(2);
-                 let preview_padding = " ".repeat(preview_padding_len);
-                 let mut preview_lines = vec![
-                    Line::from(vec![
-                        Span::raw(preview_padding),
-                        Span::styled(header_str.clone(), style),
-                    ])
-                 ];
-                 if cell.content.is_empty() {
-                     preview_lines.push(Line::from("(empty)"));
-                 } else {
-                     for line in cell.content.lines() {
-                         if line.starts_with("# ") {
-                             preview_lines.push(Line::from(Span::styled(line, Style::default().fg(Color::Blue).add_modifier(Modifier::BOLD))));
-                         } else if line.starts_with("## ") {
-                             preview_lines.push(Line::from(Span::styled(line, Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD))));
-                         } else if line.starts_with("### ") {
-                             preview_lines.push(Line::from(Span::styled(line, Style::default().fg(Color::Green).add_modifier(Modifier::BOLD))));
-                         } else if line.starts_with("- ") || line.starts_with("* ") {
-                             preview_lines.push(Line::from(format!("  • {}", &line[2..])));
-                         } else {
-                             preview_lines.push(Line::from(line));
-                         }
-                     }
-                 }
-                 preview_lines
-             }
+            };
+            list_items.push(ListItem::new(lines));
         } else {
-             let mut lines = vec![
-                Line::from(vec![
-                    Span::styled("In:", style),
-                    Span::raw(padding),
-                    Span::styled(header_str, style),
-                ])
-             ];
-             if cell.content.is_empty() {
-                 lines.push(Line::from("     (empty)"));
-             } else {
-                 for line in cell.content.lines() {
-                     lines.push(Line::from(format!("     {}", line)));
-                 }
-             }
-             lines
-        };
-        list_items.push(ListItem::new(lines));
+            // Output Item
+            let output_style = if Some(visual_idx) == app.list_state.selected() && app.focus == Focus::Editor {
+                Style::default().fg(app.accent_color).add_modifier(Modifier::BOLD)
+            } else {
+                Style::default()
+            };
 
-        // Output Item
-        let output_style = if Some(i * 2 + 1) == app.list_state.selected() && app.focus == Focus::Editor {
-            Style::default().fg(app.accent_color).add_modifier(Modifier::BOLD)
-        } else {
-            Style::default()
-        };
-
-        let mut output_lines = vec![];
-        if cell.cell_type != CellType::Markdown {
+            let mut output_lines = vec![];
             if !cell.output.is_empty() {
                 output_lines.push(Line::from
                     (Span::styled("Out:", output_style)));
@@ -2210,10 +2245,10 @@ fn ui(f: &mut Frame, app: &App) {
                  output_lines.push(Line::from(Span::styled("Out:", output_style)));
                  output_lines.push(Line::from("     (empty)"));
             }
+            output_lines.push(Line::from("")); // Spacer
+            
+            list_items.push(ListItem::new(output_lines));
         }
-        output_lines.push(Line::from("")); // Spacer
-        
-        list_items.push(ListItem::new(output_lines));
     }
 
     let list = List::new(list_items)
