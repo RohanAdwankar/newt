@@ -28,6 +28,49 @@ pub struct FileItem {
     pub label: String,
     pub is_header: bool,
     pub is_app_file: bool,
+    pub is_directory: bool,
+    pub is_expanded: bool,
+    pub depth: usize,
+    pub parent_path: Option<PathBuf>,
+}
+
+#[derive(Clone, Debug)]
+pub struct SearchState {
+    pub query: String,
+    pub matches: Vec<usize>,
+    pub current_match: Option<usize>,
+    pub is_smart_case: bool,
+}
+
+impl SearchState {
+    fn new() -> Self {
+        SearchState {
+            query: String::new(),
+            matches: Vec::new(),
+            current_match: None,
+            is_smart_case: true,
+        }
+    }
+
+    fn clear(&mut self) {
+        self.query.clear();
+        self.matches.clear();
+        self.current_match = None;
+    }
+
+    fn has_uppercase(&self) -> bool {
+        self.query.chars().any(|c| c.is_uppercase())
+    }
+
+    fn matches_pattern(&self, text: &str) -> bool {
+        if self.is_smart_case && self.has_uppercase() {
+            // Case sensitive
+            text.contains(&self.query)
+        } else {
+            // Case insensitive
+            text.to_lowercase().contains(&self.query.to_lowercase())
+        }
+    }
 }
 
 #[derive(Parser, Debug)]
@@ -154,6 +197,10 @@ pub struct App {
     pub accent_color: Color,
     pub dirty: bool,
     pub last_file_refresh: std::time::Instant,
+    pub numeric_prefix: Option<usize>,
+    pub sidebar_search: SearchState,
+    pub editor_search: SearchState,
+    pub expanded_dirs: std::collections::HashSet<PathBuf>,
 }
 
 #[derive(PartialEq)]
@@ -172,6 +219,8 @@ pub enum InputMode {
     ConfirmDelete,
     ConfirmOverwrite,
     InputPopup,
+    SearchSidebar,
+    SearchEditor,
 }
 
 impl App {
@@ -204,6 +253,10 @@ impl App {
             accent_color: Color::Indexed(40),
             dirty: false,
             last_file_refresh: std::time::Instant::now(),
+            numeric_prefix: None,
+            sidebar_search: SearchState::new(),
+            editor_search: SearchState::new(),
+            expanded_dirs: std::collections::HashSet::new(),
         };
 
         app.load_config();
@@ -283,70 +336,46 @@ impl App {
     fn refresh_file_list(&mut self) {
         // Preserve the current selection
         let current_selection = self.file_list_state.selected();
-        
+
         self.available_files.clear();
 
-        // Local Files
+        // Local Files Header
         let cwd = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
         let cwd_label = cwd
             .file_name()
             .map(|n| n.to_string_lossy().to_string())
             .unwrap_or_else(|| cwd.to_string_lossy().to_string());
+
         self.available_files.push(FileItem {
             path: None,
             label: cwd_label,
             is_header: true,
             is_app_file: false,
+            is_directory: false,
+            is_expanded: false,
+            depth: 0,
+            parent_path: None,
         });
 
-        if let Ok(entries) = fs::read_dir(".") {
-            let mut files: Vec<PathBuf> = entries.flatten().map(|e| e.path()).collect();
-            files.sort();
-            for path in files {
-                // Ignore hidden files/dirs starting with .
-                if let Some(name) = path.file_name() {
-                    if name.to_string_lossy().starts_with('.') { continue; }
-                }
-                
-                let label = path.file_name().unwrap().to_string_lossy().to_string();
-                self.available_files.push(FileItem {
-                    path: Some(path),
-                    label,
-                    is_header: false,
-                    is_app_file: false,
-                });
-            }
-        }
+        // Build hierarchical tree for local files
+        self.build_directory_tree(&cwd, 0, false);
 
-        // App Files
+        // App Files Header
         self.available_files.push(FileItem {
             path: None,
             label: "Application Files".to_string(),
             is_header: true,
             is_app_file: true,
+            is_directory: false,
+            is_expanded: false,
+            depth: 0,
+            parent_path: None,
         });
-        
-        let dir = get_app_dir();
-        if let Ok(entries) = fs::read_dir(dir) {
-            let mut files: Vec<PathBuf> = Vec::new();
-            for entry in entries.flatten() {
-                let path = entry.path();
-                if path.extension().map_or(false, |ext| ext == "newt" || ext == "md") {
-                    files.push(path);
-                }
-            }
-            files.sort();
-            for path in files {
-                let label = path.file_name().unwrap().to_string_lossy().to_string();
-                self.available_files.push(FileItem {
-                    path: Some(path),
-                    label,
-                    is_header: false,
-                    is_app_file: true,
-                });
-            }
-        }
-        
+
+        // Build hierarchical tree for app files
+        let app_dir = get_app_dir();
+        self.build_directory_tree(&app_dir, 0, true);
+
         // Restore the previous selection, or default to 0 if it was None
         // Also ensure the selection is within bounds
         if let Some(selected) = current_selection {
@@ -354,6 +383,150 @@ impl App {
             self.file_list_state.select(Some(selected.min(max_index)));
         } else {
             self.file_list_state.select(Some(0));
+        }
+    }
+
+    fn build_directory_tree(&mut self, dir: &PathBuf, depth: usize, is_app_file: bool) {
+        if let Ok(entries) = fs::read_dir(dir) {
+            let mut items: Vec<(PathBuf, bool)> = entries
+                .flatten()
+                .map(|e| {
+                    let path = e.path();
+                    let is_dir = path.is_dir();
+                    (path, is_dir)
+                })
+                .collect();
+
+            // Sort: directories first, then files, alphabetically within each group
+            items.sort_by(|a, b| {
+                match (a.1, b.1) {
+                    (true, false) => std::cmp::Ordering::Less,
+                    (false, true) => std::cmp::Ordering::Greater,
+                    _ => a.0.cmp(&b.0),
+                }
+            });
+
+            for (path, is_dir) in items {
+                // Skip hidden files/directories
+                if let Some(name) = path.file_name() {
+                    if name.to_string_lossy().starts_with('.') {
+                        continue;
+                    }
+                }
+
+                // For app files, only show .newt and .md files (but always show directories)
+                if is_app_file && !is_dir {
+                    if !path.extension().map_or(false, |ext| ext == "newt" || ext == "md") {
+                        continue;
+                    }
+                }
+
+                let label = path.file_name().unwrap().to_string_lossy().to_string();
+                let is_expanded = self.expanded_dirs.contains(&path);
+
+                self.available_files.push(FileItem {
+                    path: Some(path.clone()),
+                    label,
+                    is_header: false,
+                    is_app_file,
+                    is_directory: is_dir,
+                    is_expanded,
+                    depth,
+                    parent_path: Some(dir.clone()),
+                });
+
+                // Recursively add children if directory is expanded
+                if is_dir && is_expanded {
+                    self.build_directory_tree(&path, depth + 1, is_app_file);
+                }
+            }
+        }
+    }
+
+    fn toggle_directory(&mut self, index: usize) {
+        if let Some(item) = self.available_files.get(index) {
+            if item.is_directory {
+                if let Some(path) = &item.path {
+                    if self.expanded_dirs.contains(path) {
+                        self.expanded_dirs.remove(path);
+                    } else {
+                        self.expanded_dirs.insert(path.clone());
+                    }
+                    self.refresh_file_list();
+                }
+            }
+        }
+    }
+
+    fn collapse_directory(&mut self, index: usize) {
+        if let Some(item) = self.available_files.get(index) {
+            if item.is_directory && item.is_expanded {
+                if let Some(path) = &item.path {
+                    self.expanded_dirs.remove(path);
+                    self.refresh_file_list();
+                }
+            } else if !item.is_directory && item.depth > 0 {
+                // 'h' on a file: jump to parent directory
+                if let Some(parent) = &item.parent_path {
+                    for (i, file_item) in self.available_files.iter().enumerate() {
+                        if file_item.path.as_ref() == Some(parent) {
+                            self.file_list_state.select(Some(i));
+                            break;
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    fn expand_directory(&mut self, index: usize) {
+        if let Some(item) = self.available_files.get(index) {
+            if item.is_directory && !item.is_expanded {
+                if let Some(path) = &item.path {
+                    self.expanded_dirs.insert(path.clone());
+                    self.refresh_file_list();
+                }
+            }
+        }
+    }
+
+    fn perform_sidebar_search(&mut self) {
+        self.sidebar_search.matches.clear();
+        self.sidebar_search.current_match = None;
+
+        if self.sidebar_search.query.is_empty() {
+            return;
+        }
+
+        for (i, item) in self.available_files.iter().enumerate() {
+            if !item.is_header {
+                if self.sidebar_search.matches_pattern(&item.label) {
+                    self.sidebar_search.matches.push(i);
+                }
+            }
+        }
+
+        if !self.sidebar_search.matches.is_empty() {
+            self.sidebar_search.current_match = Some(0);
+        }
+    }
+
+    fn perform_editor_search(&mut self) {
+        self.editor_search.matches.clear();
+        self.editor_search.current_match = None;
+
+        if self.editor_search.query.is_empty() {
+            return;
+        }
+
+        for (i, cell) in self.cells.iter().enumerate() {
+            if self.editor_search.matches_pattern(&cell.content) {
+                self.editor_search.matches.push(i);
+            }
+        }
+
+        if !self.editor_search.matches.is_empty() {
+            self.editor_search.current_match = Some(0);
         }
     }
 
@@ -813,19 +986,52 @@ async fn run_app<B: Backend + std::io::Write>(terminal: &mut Terminal<B>, app: &
                             Focus::Sidebar => {
                                 match key.code {
                                     KeyCode::Char('q') => return Ok(()),
-                                    KeyCode::Char('j') | KeyCode::Down => {
-                                        if let Some(i) = app.file_list_state.selected() {
-                                            if i < app.available_files.len() { 
-                                                app.file_list_state.select(Some(i + 1));
-                                            }
+                                    KeyCode::Char(c) if c.is_ascii_digit() => {
+                                        if c == '0' && app.numeric_prefix.is_none() {
+                                            // Jump to top
+                                            app.file_list_state.select(Some(0));
+                                        } else {
+                                            let digit = c.to_digit(10).unwrap() as usize;
+                                            app.numeric_prefix = Some(app.numeric_prefix.unwrap_or(0) * 10 + digit);
+                                            app.numeric_prefix = Some(app.numeric_prefix.unwrap().min(9999));
                                         }
                                     }
-                                    KeyCode::Char('k') | KeyCode::Up => {
+                                    KeyCode::Char('j') | KeyCode::Down => {
+                                        let count = app.numeric_prefix.unwrap_or(1);
                                         if let Some(i) = app.file_list_state.selected() {
-                                            if i > 0 {
-                                                app.file_list_state.select(Some(i - 1));
-                                            }
+                                            let new_pos = (i + count).min(app.available_files.len().saturating_sub(1));
+                                            app.file_list_state.select(Some(new_pos));
                                         }
+                                        app.numeric_prefix = None;
+                                    }
+                                    KeyCode::Char('k') | KeyCode::Up => {
+                                        let count = app.numeric_prefix.unwrap_or(1);
+                                        if let Some(i) = app.file_list_state.selected() {
+                                            let new_pos = i.saturating_sub(count);
+                                            app.file_list_state.select(Some(new_pos));
+                                        }
+                                        app.numeric_prefix = None;
+                                    }
+                                    KeyCode::Char('G') => {
+                                        if let Some(count) = app.numeric_prefix {
+                                            // Go to line number
+                                            let new_pos = count.saturating_sub(1).min(app.available_files.len().saturating_sub(1));
+                                            app.file_list_state.select(Some(new_pos));
+                                        } else {
+                                            // Go to last item
+                                            app.file_list_state.select(Some(app.available_files.len().saturating_sub(1)));
+                                        }
+                                        app.numeric_prefix = None;
+                                    }
+                                    KeyCode::Char('g') => {
+                                        if app.pending_key == Some('g') {
+                                            // gg - go to top
+                                            app.file_list_state.select(Some(0));
+                                            app.pending_key = None;
+                                        } else {
+                                            app.pending_key = Some('g');
+                                        }
+                                        app.numeric_prefix = None;
                                     }
                                     KeyCode::Enter => {
                                         if let Some(i) = app.file_list_state.selected() {
@@ -838,14 +1044,17 @@ async fn run_app<B: Backend + std::io::Write>(terminal: &mut Terminal<B>, app: &
                                                 app.list_state.select(Some(0));
                                                 app.focus = Focus::Editor;
                                             } else {
-                                                // Open selected file
+                                                // Check if it's a directory or file
                                                 if let Some(item) = app.available_files.get(i - 1) {
-                                                    if item.is_header {
+                                                    if item.is_directory {
+                                                        // Toggle directory expansion
+                                                        app.toggle_directory(i - 1);
+                                                    } else if item.is_header {
                                                         // Do nothing
                                                     } else if let Some(path) = &item.path {
                                                         let ext = path.extension().unwrap_or_default().to_string_lossy();
                                                         let is_notebook = ext == "newt" || ext == "md";
-                                                        
+
                                                         let mut loaded = false;
                                                         if is_notebook {
                                                             if let Ok(content) = fs::read_to_string(path) {
@@ -861,7 +1070,7 @@ async fn run_app<B: Backend + std::io::Write>(terminal: &mut Terminal<B>, app: &
                                                                 }
                                                             }
                                                         }
-                                                        
+
                                                         if loaded {
                                                             app.file_path = Some(path.clone());
                                                             app.input_mode = InputMode::Normal;
@@ -871,9 +1080,9 @@ async fn run_app<B: Backend + std::io::Write>(terminal: &mut Terminal<B>, app: &
                                                             // Open in external editor
                                                             disable_raw_mode()?;
                                                             execute!(terminal.backend_mut(), LeaveAlternateScreen, DisableMouseCapture)?;
-                                                            
+
                                                             let _ = run_external_editor(path, &app.editor);
-                                                            
+
                                                             execute!(terminal.backend_mut(), EnterAlternateScreen, EnableMouseCapture)?;
                                                             enable_raw_mode()?;
                                                             terminal.clear()?;
@@ -887,8 +1096,30 @@ async fn run_app<B: Backend + std::io::Write>(terminal: &mut Terminal<B>, app: &
                                             }
                                         }
                                     }
+                                    KeyCode::Char('h') | KeyCode::Left => {
+                                        if let Some(i) = app.file_list_state.selected() {
+                                            if i > 0 {
+                                                app.collapse_directory(i - 1);
+                                            }
+                                        }
+                                    }
                                     KeyCode::Char('l') | KeyCode::Right => {
-                                        app.focus = Focus::Editor;
+                                        if let Some(i) = app.file_list_state.selected() {
+                                            if i > 0 {
+                                                if let Some(item) = app.available_files.get(i - 1) {
+                                                    if item.is_directory {
+                                                        app.expand_directory(i - 1);
+                                                    } else {
+                                                        // Not a directory, switch to editor
+                                                        app.focus = Focus::Editor;
+                                                    }
+                                                }
+                                            } else {
+                                                app.focus = Focus::Editor;
+                                            }
+                                        } else {
+                                            app.focus = Focus::Editor;
+                                        }
                                     }
                                     KeyCode::Char('r') => {
                                         if let Some(i) = app.file_list_state.selected() {
@@ -957,6 +1188,36 @@ async fn run_app<B: Backend + std::io::Write>(terminal: &mut Terminal<B>, app: &
                                                 if fs::copy(src, &dest).is_ok() {
                                                     app.refresh_file_list();
                                                     app.status_message = Some(format!("Pasted to {}", dest.display()));
+                                                }
+                                            }
+                                        }
+                                    }
+                                    KeyCode::Char('/') => {
+                                        app.input_mode = InputMode::SearchSidebar;
+                                        app.sidebar_search.clear();
+                                    }
+                                    KeyCode::Char('n') => {
+                                        if let Some(current) = app.sidebar_search.current_match {
+                                            if !app.sidebar_search.matches.is_empty() {
+                                                let next = (current + 1) % app.sidebar_search.matches.len();
+                                                app.sidebar_search.current_match = Some(next);
+                                                if let Some(&idx) = app.sidebar_search.matches.get(next) {
+                                                    app.file_list_state.select(Some(idx + 1)); // +1 for "New Notebook" offset
+                                                }
+                                            }
+                                        }
+                                    }
+                                    KeyCode::Char('N') => {
+                                        if let Some(current) = app.sidebar_search.current_match {
+                                            if !app.sidebar_search.matches.is_empty() {
+                                                let prev = if current == 0 {
+                                                    app.sidebar_search.matches.len().saturating_sub(1)
+                                                } else {
+                                                    current - 1
+                                                };
+                                                app.sidebar_search.current_match = Some(prev);
+                                                if let Some(&idx) = app.sidebar_search.matches.get(prev) {
+                                                    app.file_list_state.select(Some(idx + 1)); // +1 for "New Notebook" offset
                                                 }
                                             }
                                         }
@@ -1044,23 +1305,86 @@ async fn run_app<B: Backend + std::io::Write>(terminal: &mut Terminal<B>, app: &
                                             }
                                         }
                                     }
+                                    KeyCode::Char('/') => {
+                                        app.input_mode = InputMode::SearchEditor;
+                                        app.editor_search.clear();
+                                    }
+                                    KeyCode::Char('n') => {
+                                        if let Some(current) = app.editor_search.current_match {
+                                            if !app.editor_search.matches.is_empty() {
+                                                let next = (current + 1) % app.editor_search.matches.len();
+                                                app.editor_search.current_match = Some(next);
+                                                if let Some(&idx) = app.editor_search.matches.get(next) {
+                                                    app.list_state.select(Some(idx));
+                                                }
+                                            }
+                                        }
+                                    }
+                                    KeyCode::Char('N') => {
+                                        if let Some(current) = app.editor_search.current_match {
+                                            if !app.editor_search.matches.is_empty() {
+                                                let prev = if current == 0 {
+                                                    app.editor_search.matches.len().saturating_sub(1)
+                                                } else {
+                                                    current - 1
+                                                };
+                                                app.editor_search.current_match = Some(prev);
+                                                if let Some(&idx) = app.editor_search.matches.get(prev) {
+                                                    app.list_state.select(Some(idx));
+                                                }
+                                            }
+                                        }
+                                    }
                                     KeyCode::Char(':') => {
                                         app.input_mode = InputMode::Command;
                                         app.command_input.clear();
                                     }
-                                    KeyCode::Char('j') => {
-                                        if let Some(i) = app.list_state.selected() {
-                                            if i < visual_items.len().saturating_sub(1) {
-                                                app.list_state.select(Some(i + 1));
-                                            }
+                                    KeyCode::Char(c) if c.is_ascii_digit() => {
+                                        if c == '0' && app.numeric_prefix.is_none() {
+                                            // Jump to top
+                                            app.list_state.select(Some(0));
+                                        } else {
+                                            let digit = c.to_digit(10).unwrap() as usize;
+                                            app.numeric_prefix = Some(app.numeric_prefix.unwrap_or(0) * 10 + digit);
+                                            app.numeric_prefix = Some(app.numeric_prefix.unwrap().min(9999));
                                         }
                                     }
-                                    KeyCode::Char('k') => {
+                                    KeyCode::Char('j') => {
+                                        let count = app.numeric_prefix.unwrap_or(1);
                                         if let Some(i) = app.list_state.selected() {
-                                            if i > 0 {
-                                                app.list_state.select(Some(i - 1));
-                                            }
+                                            let new_pos = (i + count).min(visual_items.len().saturating_sub(1));
+                                            app.list_state.select(Some(new_pos));
                                         }
+                                        app.numeric_prefix = None;
+                                    }
+                                    KeyCode::Char('k') => {
+                                        let count = app.numeric_prefix.unwrap_or(1);
+                                        if let Some(i) = app.list_state.selected() {
+                                            let new_pos = i.saturating_sub(count);
+                                            app.list_state.select(Some(new_pos));
+                                        }
+                                        app.numeric_prefix = None;
+                                    }
+                                    KeyCode::Char('G') => {
+                                        if let Some(count) = app.numeric_prefix {
+                                            // Go to cell number
+                                            let new_pos = count.saturating_sub(1).min(visual_items.len().saturating_sub(1));
+                                            app.list_state.select(Some(new_pos));
+                                        } else {
+                                            // Go to last cell
+                                            app.list_state.select(Some(visual_items.len().saturating_sub(1)));
+                                        }
+                                        app.numeric_prefix = None;
+                                    }
+                                    KeyCode::Char('g') => {
+                                        if app.pending_key == Some('g') {
+                                            // gg - go to top
+                                            app.list_state.select(Some(0));
+                                            app.pending_key = None;
+                                        } else {
+                                            app.pending_key = Some('g');
+                                        }
+                                        app.numeric_prefix = None;
                                     }
                                     KeyCode::Char('h') | KeyCode::Left => {
                                         if app.show_sidebar {
@@ -2028,6 +2352,57 @@ async fn run_app<B: Backend + std::io::Write>(terminal: &mut Terminal<B>, app: &
                             app.command_input.clear();
                             app.file_to_delete = None;
                         }
+                    },
+                    InputMode::SearchSidebar => match key.code {
+                        KeyCode::Enter => {
+                            // Perform search
+                            app.perform_sidebar_search();
+                            // Jump to first match
+                            if let Some(0) = app.sidebar_search.current_match {
+                                if let Some(&idx) = app.sidebar_search.matches.get(0) {
+                                    app.file_list_state.select(Some(idx + 1)); // +1 for "New Notebook" offset
+                                }
+                            }
+                            app.input_mode = InputMode::Normal;
+                        }
+                        KeyCode::Esc => {
+                            app.sidebar_search.clear();
+                            app.input_mode = InputMode::Normal;
+                        }
+                        KeyCode::Char(c) => {
+                            app.sidebar_search.query.push(c);
+                            // Live search (update matches as user types)
+                            app.perform_sidebar_search();
+                        }
+                        KeyCode::Backspace => {
+                            app.sidebar_search.query.pop();
+                            app.perform_sidebar_search();
+                        }
+                        _ => {}
+                    },
+                    InputMode::SearchEditor => match key.code {
+                        KeyCode::Enter => {
+                            app.perform_editor_search();
+                            if let Some(0) = app.editor_search.current_match {
+                                if let Some(&idx) = app.editor_search.matches.get(0) {
+                                    app.list_state.select(Some(idx));
+                                }
+                            }
+                            app.input_mode = InputMode::Normal;
+                        }
+                        KeyCode::Esc => {
+                            app.editor_search.clear();
+                            app.input_mode = InputMode::Normal;
+                        }
+                        KeyCode::Char(c) => {
+                            app.editor_search.query.push(c);
+                            app.perform_editor_search();
+                        }
+                        KeyCode::Backspace => {
+                            app.editor_search.query.pop();
+                            app.perform_editor_search();
+                        }
+                        _ => {}
                     }
                 }
             }
@@ -2194,16 +2569,38 @@ fn ui(f: &mut Frame, app: &App) {
     // Render Sidebar
     if let Some(sidebar_area) = content_chunks.0 {
         let mut items = vec![ListItem::new("New Notebook").style(Style::default().add_modifier(Modifier::BOLD))];
-        for item in &app.available_files {
+        for (idx, item) in app.available_files.iter().enumerate() {
             if item.is_header {
                 items.push(ListItem::new(Span::styled(format!("--- {} ---", item.label), Style::default().fg(Color::DarkGray))));
             } else {
+                // Build indentation based on depth
+                let indent = "  ".repeat(item.depth);
+
+                // Directory indicator
+                let indicator = if item.is_directory {
+                    if item.is_expanded { "▾ " } else { "▸ " }
+                } else {
+                    "  "
+                };
+
                 let name = if let Some(path) = &item.path {
                     path.file_name().unwrap().to_string_lossy().to_string()
                 } else {
                     item.label.clone()
                 };
-                items.push(ListItem::new(format!("  {}", name)));
+
+                let display_name = format!("{}{}{}", indent, indicator, name);
+
+                // Highlight if matches search
+                let mut style = Style::default();
+                if (app.input_mode == InputMode::SearchSidebar || !app.sidebar_search.matches.is_empty()) && app.sidebar_search.matches.contains(&idx) {
+                    style = style.fg(Color::Yellow);
+                    if Some(&idx) == app.sidebar_search.current_match.and_then(|cm| app.sidebar_search.matches.get(cm)) {
+                        style = style.add_modifier(Modifier::BOLD);
+                    }
+                }
+
+                items.push(ListItem::new(display_name).style(style));
             }
         }
         
@@ -2446,6 +2843,38 @@ fn ui(f: &mut Frame, app: &App) {
             f.render_widget(block, popup_area);
             f.render_widget(prompt, chunks[0]);
             f.render_widget(input, chunks[2]);
+        }
+        InputMode::SearchSidebar => {
+            let search_text = format!("/{}", app.sidebar_search.query);
+            let match_info = if !app.sidebar_search.matches.is_empty() {
+                format!(" ({}/{})",
+                    app.sidebar_search.current_match.map(|m| m + 1).unwrap_or(0),
+                    app.sidebar_search.matches.len())
+            } else if !app.sidebar_search.query.is_empty() {
+                " (no matches)".to_string()
+            } else {
+                String::new()
+            };
+
+            let input_block = Paragraph::new(format!("{}{}", search_text, match_info))
+                .style(Style::default().fg(Color::Cyan));
+            f.render_widget(input_block, bottom_bar_area);
+        }
+        InputMode::SearchEditor => {
+            let search_text = format!("/{}", app.editor_search.query);
+            let match_info = if !app.editor_search.matches.is_empty() {
+                format!(" ({}/{})",
+                    app.editor_search.current_match.map(|m| m + 1).unwrap_or(0),
+                    app.editor_search.matches.len())
+            } else if !app.editor_search.query.is_empty() {
+                " (no matches)".to_string()
+            } else {
+                String::new()
+            };
+
+            let input_block = Paragraph::new(format!("{}{}", search_text, match_info))
+                .style(Style::default().fg(Color::Cyan));
+            f.render_widget(input_block, bottom_bar_area);
         }
     }
 }
