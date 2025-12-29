@@ -1385,6 +1385,7 @@ async fn run_app<B: Backend + std::io::Write>(terminal: &mut Terminal<B>, app: &
                                 "q" => {
                                     if app.dirty {
                                         app.status_message = Some("E37: No write since last change (add ! to override)".to_string());
+                                        app.input_mode = InputMode::Normal;
                                     } else {
                                         return Ok(());
                                     }
