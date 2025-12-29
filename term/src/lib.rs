@@ -514,6 +514,48 @@ impl App {
             let _ = fs::write(path, json);
         }
     }
+
+    fn handle_editor_result(&mut self, cell_idx: usize, new_content: String) {
+        if let Some(cell) = self.cells.get_mut(cell_idx) {
+            if cell.content != new_content {
+                // Check if new content contains cell splitting fences
+                if new_content.contains("```") {
+                    let wrapped_content = if cell.cell_type == CellType::Markdown {
+                        new_content.clone()
+                    } else {
+                        let lang = match cell.cell_type {
+                            CellType::Rust => "rust",
+                            CellType::Python => "python",
+                            CellType::JavaScript => "javascript",
+                            CellType::TypeScript => "typescript",
+                            CellType::C => "c",
+                            CellType::Cpp => "cpp",
+                            CellType::Go => "go",
+                            CellType::Shell => "bash",
+                            CellType::Markdown => "markdown",
+                        };
+                        format!("```{}\n{}\n```", lang, new_content)
+                    };
+
+                    let new_cells = crate::markdown::parse_markdown(&wrapped_content);
+                    if !new_cells.is_empty() {
+                         // Replace current cell with new cells
+                         self.cells.remove(cell_idx);
+                         for (i, new_cell) in new_cells.into_iter().enumerate() {
+                             self.cells.insert(cell_idx + i, new_cell);
+                         }
+                         self.dirty = true;
+                         return;
+                    }
+                }
+
+                if let Some(cell) = self.cells.get_mut(cell_idx) {
+                    cell.content = new_content;
+                    self.dirty = true;
+                }
+            }
+        }
+    }
 }
 
 fn get_app_dir() -> PathBuf {
@@ -1049,12 +1091,7 @@ async fn run_app<B: Backend + std::io::Write>(terminal: &mut Terminal<B>, app: &
 
                                             match res {
                                                 Ok(new_content) => {
-                                                    if let Some(cell) = app.cells.get_mut(cell_idx) {
-                                                        if cell.content != new_content {
-                                                            cell.content = new_content;
-                                                            app.dirty = true;
-                                                        }
-                                                    }
+                                                    app.handle_editor_result(cell_idx, new_content);
                                                 }
                                                 Err(e) => {
                                                     app.status_message = Some(format!("Editor error: {}", e));
@@ -1132,12 +1169,7 @@ async fn run_app<B: Backend + std::io::Write>(terminal: &mut Terminal<B>, app: &
 
                                                     match res {
                                                         Ok(new_content) => {
-                                                            if let Some(cell) = app.current_cell_mut() {
-                                                                if cell.content != new_content {
-                                                                    cell.content = new_content;
-                                                                    app.dirty = true;
-                                                                }
-                                                            }
+                                                            app.handle_editor_result(cell_idx, new_content);
                                                         }
                                                         Err(e) => {
                                                             app.status_message = Some(format!("Editor error: {}", e));
