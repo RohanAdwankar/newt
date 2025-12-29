@@ -58,9 +58,10 @@ newts
 | **Navigation** | | |
 | Move Selection Down | `j` | `Arrow Down` |
 | Move Selection Up | `k` | `Arrow Up` |
-| Focus Sidebar | `h` | `Arrow Left` |
-| Focus Editor | `l` | `Arrow Right` |
+| Focus Sidebar | `space h` | `Arrow Left` |
+| Focus Editor | `space l` | `Arrow Right` |
 | Toggle Sidebar | `Space e` | Toolbar |
+| Search | `/` | - |
 | **Cell Operations** | | |
 | Edit Cell | `i` | `Enter` |
 | Open Output Cell In Editor | `I` | - |
@@ -81,6 +82,9 @@ newts
 | Copy File | `y` | Right Click |
 | Paste File | `p` | Right Click |
 | Delete File | `d` | Right Click |
+| Open Folder | `l` | - |
+| Close Folder | `h` | - |
+| Toggle Folder | `enter` | - |
 | **Commands** | | |
 | Run All Cells | `:ra` | Run All Button |
 | Export Notebook | `:export` | Toolbar |

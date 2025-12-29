@@ -961,6 +961,20 @@ async fn run_app<B: Backend + std::io::Write>(terminal: &mut Terminal<B>, app: &
                             app.pending_key = None;
                             continue;
                         }
+                        (' ', KeyCode::Char('h')) => {
+                            // Space + h: Move focus to sidebar
+                            if app.show_sidebar {
+                                app.focus = Focus::Sidebar;
+                            }
+                            app.pending_key = None;
+                            continue;
+                        }
+                        (' ', KeyCode::Char('l')) => {
+                            // Space + l: Move focus to editor
+                            app.focus = Focus::Editor;
+                            app.pending_key = None;
+                            continue;
+                        }
                         _ => {
                             app.pending_key = None;
                             // Fall through to handle the second key as a normal key if sequence failed?
@@ -1111,16 +1125,10 @@ async fn run_app<B: Backend + std::io::Write>(terminal: &mut Terminal<B>, app: &
                                                 if let Some(item) = app.available_files.get(i - 1) {
                                                     if item.is_directory {
                                                         app.expand_directory(i - 1);
-                                                    } else {
-                                                        // Not a directory, switch to editor
-                                                        app.focus = Focus::Editor;
                                                     }
+                                                    // For files, l does nothing - use space+l to switch focus
                                                 }
-                                            } else {
-                                                app.focus = Focus::Editor;
                                             }
-                                        } else {
-                                            app.focus = Focus::Editor;
                                         }
                                     }
                                     KeyCode::Char('r') => {
@@ -1393,11 +1401,6 @@ async fn run_app<B: Backend + std::io::Write>(terminal: &mut Terminal<B>, app: &
                                             app.pending_key = Some('g');
                                         }
                                         app.numeric_prefix = None;
-                                    }
-                                    KeyCode::Char('h') | KeyCode::Left => {
-                                        if app.show_sidebar {
-                                            app.focus = Focus::Sidebar;
-                                        }
                                     }
                                     KeyCode::Char('o') => {
                                         if let Some(i) = app.list_state.selected() {
