@@ -243,6 +243,8 @@ impl App {
             app.add_cell(CellType::Shell);
         }
         
+        app.dirty = false;
+        
         app
     }
 
@@ -1383,7 +1385,8 @@ async fn run_app<B: Backend + std::io::Write>(terminal: &mut Terminal<B>, app: &
                             } else {
                                 match app.command_input.as_str() {
                                 "q" => {
-                                    if app.dirty {
+                                    let is_untitled_empty = app.file_path.is_none() && app.cells.iter().all(|c| c.content.trim().is_empty());
+                                    if app.dirty && !is_untitled_empty {
                                         app.status_message = Some("E37: No write since last change (add ! to override)".to_string());
                                         app.input_mode = InputMode::Normal;
                                     } else {
