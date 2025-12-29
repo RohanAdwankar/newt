@@ -1245,10 +1245,7 @@ async fn run_app<B: Backend + std::io::Write>(terminal: &mut Terminal<B>, app: &
                                                     terminal.clear()?;
                                                 }
                                             } else if let Some(req) = app.get_run_request(cell_idx) {
-                                                // Ensure the current cell is visible by snapping list offset
-                                                if let Some(i) = app.list_state.selected() {
-                                                    *app.list_state.offset_mut() = i;
-                                                }
+
         
                                                 let client = client.clone();
                                                 let tx = tx.clone();
@@ -1475,7 +1472,7 @@ async fn run_app<B: Backend + std::io::Write>(terminal: &mut Terminal<B>, app: &
                                 }
                                 "rust" => {
                                     if let Some(i) = app.list_state.selected() {
-                                        if let Some(cell) = app.cells.get_mut(i / 2) {
+                                        if let Some(cell) = app.cells.get_mut(i) {
                                             cell.cell_type = CellType::Rust;
                                             app.dirty = true;
                                         }
@@ -1484,7 +1481,7 @@ async fn run_app<B: Backend + std::io::Write>(terminal: &mut Terminal<B>, app: &
                                 }
                                 "cpp" => {
                                     if let Some(i) = app.list_state.selected() {
-                                        if let Some(cell) = app.cells.get_mut(i / 2) {
+                                        if let Some(cell) = app.cells.get_mut(i) {
                                             cell.cell_type = CellType::Cpp;
                                             app.dirty = true;
                                         }
@@ -1493,7 +1490,7 @@ async fn run_app<B: Backend + std::io::Write>(terminal: &mut Terminal<B>, app: &
                                 }
                                 "c" => {
                                     if let Some(i) = app.list_state.selected() {
-                                        if let Some(cell) = app.cells.get_mut(i / 2) {
+                                        if let Some(cell) = app.cells.get_mut(i) {
                                             cell.cell_type = CellType::C;
                                             app.dirty = true;
                                         }
@@ -1502,7 +1499,7 @@ async fn run_app<B: Backend + std::io::Write>(terminal: &mut Terminal<B>, app: &
                                 }
                                 "py" => {
                                     if let Some(i) = app.list_state.selected() {
-                                        if let Some(cell) = app.cells.get_mut(i / 2) {
+                                        if let Some(cell) = app.cells.get_mut(i) {
                                             cell.cell_type = CellType::Python;
                                             app.dirty = true;
                                         }
@@ -1511,7 +1508,7 @@ async fn run_app<B: Backend + std::io::Write>(terminal: &mut Terminal<B>, app: &
                                 }
                                 "ts" => {
                                     if let Some(i) = app.list_state.selected() {
-                                        if let Some(cell) = app.cells.get_mut(i / 2) {
+                                        if let Some(cell) = app.cells.get_mut(i) {
                                             cell.cell_type = CellType::TypeScript;
                                             app.dirty = true;
                                         }
@@ -1520,7 +1517,7 @@ async fn run_app<B: Backend + std::io::Write>(terminal: &mut Terminal<B>, app: &
                                 }
                                 "js" => {
                                     if let Some(i) = app.list_state.selected() {
-                                        if let Some(cell) = app.cells.get_mut(i / 2) {
+                                        if let Some(cell) = app.cells.get_mut(i) {
                                             cell.cell_type = CellType::JavaScript;
                                             app.dirty = true;
                                         }
@@ -1529,7 +1526,7 @@ async fn run_app<B: Backend + std::io::Write>(terminal: &mut Terminal<B>, app: &
                                 }
                                 "md" | "markdown" => {
                                     if let Some(i) = app.list_state.selected() {
-                                        if let Some(cell) = app.cells.get_mut(i / 2) {
+                                        if let Some(cell) = app.cells.get_mut(i) {
                                             cell.cell_type = CellType::Markdown;
                                             app.dirty = true;
                                         }
@@ -1538,13 +1535,14 @@ async fn run_app<B: Backend + std::io::Write>(terminal: &mut Terminal<B>, app: &
                                 }
                                 "sh" | "shell" => {
                                     if let Some(i) = app.list_state.selected() {
-                                        if let Some(cell) = app.cells.get_mut(i / 2) {
+                                        if let Some(cell) = app.cells.get_mut(i) {
                                             cell.cell_type = CellType::Shell;
                                             app.dirty = true;
                                         }
                                     }
                                     app.input_mode = InputMode::Normal;
                                 }
+
                                 _ => {
                                     app.input_mode = InputMode::Normal;
                                 }
