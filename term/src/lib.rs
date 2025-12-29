@@ -279,9 +279,14 @@ impl App {
         self.available_files.clear();
 
         // Local Files
+        let cwd = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
+        let cwd_label = cwd
+            .file_name()
+            .map(|n| n.to_string_lossy().to_string())
+            .unwrap_or_else(|| cwd.to_string_lossy().to_string());
         self.available_files.push(FileItem {
             path: None,
-            label: "Current Directory".to_string(),
+            label: cwd_label,
             is_header: true,
             is_app_file: false,
         });
