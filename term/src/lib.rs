@@ -845,45 +845,14 @@ async fn run_app<B: Backend + std::io::Write>(terminal: &mut Terminal<B>, app: &
                                                             app.focus = Focus::Editor;
                                                         } else {
                                                             // Open in external editor
-                                                            let mut editor_cmd = app.editor.clone();
-                                                            let is_code = editor_cmd.trim().starts_with("code");
-                                                            if is_code && !editor_cmd.contains("--wait") && !editor_cmd.contains("-w") {
-                                                                editor_cmd.push_str(" --wait");
-                                                            }
+                                                            disable_raw_mode()?;
+                                                            execute!(terminal.backend_mut(), LeaveAlternateScreen, DisableMouseCapture)?;
                                                             
-                                                            let path_str = path.to_string_lossy().to_string();
-
-                                                            if !is_code {
-                                                                disable_raw_mode()?;
-                                                                execute!(terminal.backend_mut(), LeaveAlternateScreen, DisableMouseCapture)?;
-                                                            }
+                                                            let _ = run_external_editor(path, &app.editor);
                                                             
-                                                            let parts: Vec<&str> = editor_cmd.split_whitespace().collect();
-                                                            if !parts.is_empty() {
-                                                                let mut cmd = Command::new(parts[0]);
-                                                                cmd.args(&parts[1..]);
-                                                                cmd.arg(&path_str);
-                                                                
-                                                                if !is_code {
-                                                                     // For terminal editors (vi), wait for it
-                                                                     let _ = cmd.status();
-                                                                } else {
-                                                                     // For GUI editors (code --wait), also wait!
-                                                                     // If we spawn, it returns immediately and flashes.
-                                                                     // code --wait blocks until file is closed.
-                                                                     let _ = cmd.status();
-                                                                }
-                                                            }
-                                                            
-                                                            if !is_code {
-                                                                execute!(terminal.backend_mut(), EnterAlternateScreen, EnableMouseCapture)?;
-                                                                enable_raw_mode()?;
-                                                                terminal.clear()?; // Force redraw
-                                                            }
-                                                            // If is_code (GUI), we also need to redraw because it might have covered the screen
-                                                            if is_code {
-                                                                terminal.clear()?; 
-                                                            }
+                                                            execute!(terminal.backend_mut(), EnterAlternateScreen, EnableMouseCapture)?;
+                                                            enable_raw_mode()?;
+                                                            terminal.clear()?;
                                                         }
                                                     }
                                                 }
@@ -1354,13 +1323,17 @@ async fn run_app<B: Backend + std::io::Write>(terminal: &mut Terminal<B>, app: &
                                                         enable_raw_mode()?;
                                                         terminal.clear()?;
                                                     }
-                                                } else if let Some(req) = app.get_run_request(cell_idx) {
-                                                    let client = client.clone();
-                                                    let tx = tx.clone();
-                                                    app.running_cells.insert(cell_idx);
-
-                                                    tokio::spawn(async move {
-                                                        let res = client.post("http://127.0.0.1:3030/exec")
+                                                                                                    } else if let Some(req) = app.get_run_request(cell_idx) {
+                                                                                                        // Ensure the current cell is visible by snapping list offset
+                                                                                                        if let Some(i) = app.list_state.selected() {
+                                                                                                            *app.list_state.offset_mut() = i;
+                                                                                                        }
+                                                
+                                                                                                        let client = client.clone();
+                                                                                                        let tx = tx.clone();
+                                                                                                        app.running_cells.insert(cell_idx);
+                                                
+                                                                                                        tokio::spawn(async move {                                                        let res = client.post("http://127.0.0.1:3030/exec")
                                                             .json(&req)
                                                             .send()
                                                             .await;
@@ -2019,6 +1992,47 @@ fn open_editor(content: &str, extension: &str, editor_cmd: &str, interactive_wai
     
     let new_content = std::fs::read_to_string(&path)?;
     Ok(new_content)
+}
+
+fn run_external_editor(path: &std::path::Path, editor_cmd: &str) -> io::Result<()> {
+    // Split command into program and args
+    let parts: Vec<&str> = editor_cmd.split_whitespace().collect();
+    if parts.is_empty() {
+        return Err(io::Error::new(io::ErrorKind::InvalidInput, "Empty editor command"));
+    }
+    
+    let mut program = parts[0].to_string();
+    // Expand ~ to home directory
+    if program.starts_with("~/") {
+        if let Some(user_dirs) = UserDirs::new() {
+            let home = user_dirs.home_dir().to_string_lossy();
+            program = program.replace("~", &home);
+        }
+    }
+
+    let args = &parts[1..];
+    
+    // Check if we need to wait
+    let is_code = editor_cmd.trim().starts_with("code");
+    
+    // For terminal editors (vi, nano), we just spawn and wait.
+    // For GUI editors (code), we need --wait to block.
+    
+    let mut cmd = Command::new(program);
+    cmd.args(args);
+    
+    if is_code && !editor_cmd.contains("--wait") && !editor_cmd.contains("-w") {
+        cmd.arg("--wait");
+    }
+    
+    cmd.arg(path);
+    
+    let mut child = cmd.spawn()?;
+    
+    // Wait for it to finish
+    let _ = child.wait()?;
+    
+    Ok(())
 }
 
 fn spawn_external_terminal(command: &str) -> io::Result<()> {
