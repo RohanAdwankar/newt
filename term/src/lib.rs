@@ -235,7 +235,34 @@ impl App {
                     app.file_path = Some(path);
                 }
             }
-            None => {}
+            None => {
+                // If no file specified, check for existing notebook in current directory
+                for item in &app.available_files {
+                    if !item.is_header && !item.is_app_file {
+                        if let Some(path) = &item.path {
+                            let ext = path.extension().unwrap_or_default().to_string_lossy();
+                            if ext == "md" || ext == "newt" {
+                                if let Ok(content) = fs::read_to_string(path) {
+                                    let cells = if ext == "newt" {
+                                        serde_json::from_str(&content).ok()
+                                    } else {
+                                        let c = crate::markdown::parse_markdown(&content);
+                                        if c.is_empty() { None } else { Some(c) }
+                                    };
+
+                                    if let Some(c) = cells {
+                                        app.cells = c;
+                                        app.file_path = Some(path.clone());
+                                        app.input_mode = InputMode::Normal;
+                                        app.list_state.select(Some(0));
+                                        return app;
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
         }
         
         // Default to new notebook if no cells loaded
