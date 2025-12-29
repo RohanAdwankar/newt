@@ -1,4 +1,5 @@
 use clap::Parser;
+use arboard::Clipboard;
 
 use crossterm::{
     event::{self, DisableMouseCapture, EnableMouseCapture, Event, KeyCode, KeyboardEnhancementFlags, PushKeyboardEnhancementFlags, PopKeyboardEnhancementFlags},
@@ -975,7 +976,20 @@ async fn run_app<B: Backend + std::io::Write>(terminal: &mut Terminal<B>, app: &
                                             if let Some(&cell_idx) = visual_items.get(i) {
                                                 if let Some(cell) = app.cells.get(cell_idx) {
                                                     app.clipboard_cell = Some(cell.clone());
-                                                    app.status_message = Some("Cell yanked".to_string());
+
+                                                    // Also copy to system clipboard
+                                                    match Clipboard::new() {
+                                                        Ok(mut clipboard) => {
+                                                            if clipboard.set_text(&cell.content).is_ok() {
+                                                                app.status_message = Some("Cell yanked (copied to system clipboard)".to_string());
+                                                            } else {
+                                                                app.status_message = Some("Cell yanked (system clipboard failed)".to_string());
+                                                            }
+                                                        }
+                                                        Err(_) => {
+                                                            app.status_message = Some("Cell yanked (system clipboard unavailable)".to_string());
+                                                        }
+                                                    }
                                                 }
                                             }
                                         }
@@ -985,7 +999,20 @@ async fn run_app<B: Backend + std::io::Write>(terminal: &mut Terminal<B>, app: &
                                             if let Some(&cell_idx) = visual_items.get(i) {
                                                 if let Some(cell) = app.cells.get(cell_idx) {
                                                     app.clipboard_output = Some(cell.output.clone());
-                                                    app.status_message = Some("Output yanked".to_string());
+
+                                                    // Also copy to system clipboard
+                                                    match Clipboard::new() {
+                                                        Ok(mut clipboard) => {
+                                                            if clipboard.set_text(&cell.output).is_ok() {
+                                                                app.status_message = Some("Output yanked (copied to system clipboard)".to_string());
+                                                            } else {
+                                                                app.status_message = Some("Output yanked (system clipboard failed)".to_string());
+                                                            }
+                                                        }
+                                                        Err(_) => {
+                                                            app.status_message = Some("Output yanked (system clipboard unavailable)".to_string());
+                                                        }
+                                                    }
                                                 }
                                             }
                                         }
