@@ -272,16 +272,16 @@ if __name__ == "__main__":
         std::fs::write(&script_path, script).map_err(|e| e.to_string())?;
 
         // Spawn python process
-        // We use "uv run" as in the original code
+        // Use "uv run python" which will automatically detect and use the local pyproject.toml
         let mut cmd = Command::new("uv");
         cmd.arg("run");
-        // Skip matplotlib for tests to speed up
-        if std::env::var("NEWT_TEST_MODE").is_err() {
-            cmd.arg("--with");
-            cmd.arg("matplotlib");
-        }
         cmd.arg("python");
         cmd.arg(&script_path);
+
+        // Set the working directory to the current directory so uv can find pyproject.toml
+        if let Ok(current_dir) = std::env::current_dir() {
+            cmd.current_dir(current_dir);
+        }
 
         cmd.stdin(Stdio::piped());
         cmd.stdout(Stdio::piped());
