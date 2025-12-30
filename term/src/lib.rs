@@ -942,8 +942,7 @@ async fn run_app<B: Backend + std::io::Write>(terminal: &mut Terminal<B>, app: &
             }
         }
 
-
-        terminal.draw(|f| ui(f, app))?;
+        terminal.draw(|f| ui(f, &mut *app))?;
 
         if event::poll(std::time::Duration::from_millis(100))? {
             if let Event::Key(key) = event::read()? {
@@ -2554,7 +2553,7 @@ fn run_interactive(command: &str) -> io::Result<()> {
     Ok(())
 }
 
-fn ui(f: &mut Frame, app: &App) {
+fn ui(f: &mut Frame, app: &mut App) {
     let area = f.area();
     
     // 1. Split into Main Content (top) and Status/Command Bar (bottom)
@@ -2630,7 +2629,7 @@ fn ui(f: &mut Frame, app: &App) {
 
     // Render Editor
     let editor_area = content_chunks.1;
-    
+
     let mut list_items = Vec::new();
     let visual_items = app.get_visual_items();
 
@@ -2763,30 +2762,28 @@ fn ui(f: &mut Frame, app: &App) {
                  cell_lines.push(Line::from("     (empty)"));
             }
         }
-        
+
         cell_lines.push(Line::from("")); // Bottom spacer
         list_items.push(ListItem::new(cell_lines));
+    }
+
+    // Simple offset rule: ensure prev, current, and next cells are visible
+    // This guarantees context and lets ratatui fill the viewport naturally
+    if let Some(selected) = app.list_state.selected() {
+        // Show previous cell if it exists (for context)
+        let offset = if selected > 0 {
+            selected - 1
+        } else {
+            0
+        };
+        *app.list_state.offset_mut() = offset;
     }
 
     let list = List::new(list_items)
         .block(Block::default().borders(Borders::NONE))
         .highlight_style(Style::default().add_modifier(Modifier::BOLD));
 
-    // Manage scroll offset to fill viewport
-    // This ensures cells below the selected one are visible if there's space
-    let mut list_state = app.list_state.clone();
-    if let Some(selected) = list_state.selected() {
-        // Keep selected item in upper portion of viewport (with 2 items of context above)
-        // This allows showing both context above and content below to fill the viewport
-        let desired_offset = if selected > 2 {
-            selected.saturating_sub(2)
-        } else {
-            0
-        };
-        *list_state.offset_mut() = desired_offset;
-    }
-
-    f.render_stateful_widget(list, editor_area, &mut list_state);
+    f.render_stateful_widget(list, editor_area, &mut app.list_state.clone());
 
     // Input box / Command bar
     match app.input_mode {
@@ -2854,7 +2851,21 @@ fn ui(f: &mut Frame, app: &App) {
                     String::new()
                 };
 
-                let full_status = format!("{}{}", status, search_info);
+                // Add cell position indicator on the right (like vim)
+                let position_info = if app.focus == Focus::Editor && !app.cells.is_empty() {
+                    if let Some(selected) = app.list_state.selected() {
+                        let total = app.cells.len();
+                        let current = selected + 1; // 1-indexed for display
+                        let percentage = (current * 100) / total;
+                        format!(" {}% < {}", percentage, current)
+                    } else {
+                        String::new()
+                    }
+                } else {
+                    String::new()
+                };
+
+                let full_status = format!("{}{}{}", status, search_info, position_info);
                 let status_block = Paragraph::new(full_status)
                 .style(Style::default().fg(Color::DarkGray));
                 f.render_widget(status_block, bottom_bar_area);
