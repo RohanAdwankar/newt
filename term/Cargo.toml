@@ -27,6 +27,9 @@ lazy_static = "1.5.0"
 regex = "1.12.2"
 tower = { version = "0.5.2", features = ["util"] }
 tower-http = { version = "0.6.7", features = ["cors"] }
+syntect = "5.3"
+tui-syntax-highlight = "0.2"
+ratatui-core = "0.1"
 
 [dev-dependencies]
 http-body-util = "0.1.3"

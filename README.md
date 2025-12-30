@@ -58,17 +58,25 @@ newts
 | **Navigation** | | |
 | Move Selection Down | `j` | `Arrow Down` |
 | Move Selection Up | `k` | `Arrow Up` |
-| Focus Sidebar | `h` | `Arrow Left` |
-| Focus Editor | `l` | `Arrow Right` |
+| Focus Sidebar | `space h` | `Arrow Left` |
+| Focus Editor | `space l` | `Arrow Right` |
 | Toggle Sidebar | `Space e` | Toolbar |
+| Search | `/` | - |
+| Move to Next/Previous Search Match | `n/N` | - |
+| Jump to Top | `gg` | Toolbar |
+| Jump to Bottom | `G` | Toolbar |
+| Jump to Cell 3 | `:3` or `3G` | Toolbar |
+| Move 3 Cells Down | `3j` | |
 | **Cell Operations** | | |
 | Edit Cell | `i` | `Enter` |
+| Open Output Cell In Editor | `I` | - |
 | Exit Edit Mode | `Esc` | `Esc` |
 | Run Cell | `Enter` | `Shift+Enter` |
 | Add Cell Below | `o` | Toolbar |
 | Add Cell Above | `O` | - |
 | Delete Cell | `d` | - |
-| Copy Cell | `y` | - |
+| Copy Input Cell | `y` | - |
+| Copy Output Cell | `Y` | - |
 | Cut Cell | - | Toolbar |
 | Paste Cell Below | `p` | Toolbar |
 | Paste Cell Above | `P` | - |
@@ -79,6 +87,12 @@ newts
 | Copy File | `y` | Right Click |
 | Paste File | `p` | Right Click |
 | Delete File | `d` | Right Click |
+| Open Folder | `l` | - |
+| Close Folder | `h` | - |
+| Toggle Folder | `enter` | - |
+| Move 3 Files Down | `3j` | |
+| Jump to Top (Create New Notebook) | `gg` | |
+| Jump to Bottom | `G` | |
 | **Commands** | | |
 | Run All Cells | `:ra` | Run All Button |
 | Export Notebook | `:export` | Toolbar |

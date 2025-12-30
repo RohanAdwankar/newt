@@ -1,8 +1,9 @@
 import React from 'react';
-import { Save, Plus, Scissors, Copy, Clipboard, Play, Square, RotateCw, Layers, Settings, Folder, Moon, Sun, Keyboard, Timer, Share, Maximize2, Minimize2 } from 'lucide-react';
+import { Save, Plus, Scissors, Copy, Clipboard, Play, Square, RotateCw, Layers, Settings, Folder, Moon, Sun, Keyboard, Timer, Share, Maximize2, Minimize2, Search, FileText } from 'lucide-react';
 
 interface ToolbarProps {
   onSave: () => void;
+  onNewFile: () => void;
   onShare: () => void;
   onNewCell: () => void;
   onCut: () => void;
@@ -13,6 +14,7 @@ interface ToolbarProps {
   onRestart: () => void;
   onRunAll: () => void;
   onPolling: () => void;
+  onSearch?: () => void;
   executionMode?: 'client' | 'remote';
   onExecutionModeChange?: (mode: 'client' | 'remote') => void;
   cellType?: string;
@@ -28,6 +30,7 @@ interface ToolbarProps {
 
 export const Toolbar: React.FC<ToolbarProps> = ({
   onSave,
+  onNewFile,
   onShare,
   onNewCell,
   onCut,
@@ -38,6 +41,7 @@ export const Toolbar: React.FC<ToolbarProps> = ({
   onRestart,
   onRunAll,
   onPolling,
+  onSearch,
   executionMode = 'remote',
   onExecutionModeChange,
   cellType,
@@ -61,9 +65,17 @@ export const Toolbar: React.FC<ToolbarProps> = ({
       <button onClick={onSave} className={btnClass} title="Save (Ctrl+S)">
         <Save size={18} />
       </button>
+      <button onClick={onNewFile} className={btnClass} title="New File">
+        <FileText size={18} />
+      </button>
       <button onClick={onShare} className={btnClass} title="Export to Markdown">
         <Share size={18} />
       </button>
+      {onSearch && (
+        <button onClick={onSearch} className={btnClass} title="Search (Ctrl+F)">
+          <Search size={18} />
+        </button>
+      )}
       <div className="w-px h-6 bg-border-color mx-1" />
       <button onClick={onNewCell} className={btnClass} title="New Cell (A/B)">
         <Plus size={18} />

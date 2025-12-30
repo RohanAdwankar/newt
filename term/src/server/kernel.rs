@@ -50,7 +50,7 @@ impl Kernel for PythonKernel {
 }
 
 impl PythonKernel {
-    pub fn new() -> Result<Self, String> {
+    pub fn new(notebook_path: Option<String>) -> Result<Self, String> {
         // Create a directory for outputs (images)
         let images_dir = if let Some(proj_dirs) = ProjectDirs::from("com", "newt", "newt") {
             let data_dir = proj_dirs.data_dir();
@@ -196,8 +196,7 @@ def main():
                 if res:
                     display_outputs.append(res)
             
-            # We need to inject display into the globals or builtins for this run
-            # But builtins.display is global. 
+            # builtins.display is global. 
             builtins.display = _display
             builtins.input = _newt_input
 
@@ -272,16 +271,23 @@ if __name__ == "__main__":
         std::fs::write(&script_path, script).map_err(|e| e.to_string())?;
 
         // Spawn python process
-        // We use "uv run" as in the original code
+        // Use "uv run python" which will automatically detect and use the local pyproject.toml
         let mut cmd = Command::new("uv");
         cmd.arg("run");
-        // Skip matplotlib for tests to speed up
-        if std::env::var("NEWT_TEST_MODE").is_err() {
-            cmd.arg("--with");
-            cmd.arg("matplotlib");
-        }
         cmd.arg("python");
         cmd.arg(&script_path);
+
+        // Set the working directory to the notebook's directory so uv can find pyproject.toml
+        // If no notebook path is available, fall back to current directory
+        let working_dir = if let Some(ref nb_path) = notebook_path {
+            std::path::Path::new(nb_path).parent().map(|p| p.to_path_buf())
+        } else {
+            None
+        }.or_else(|| std::env::current_dir().ok());
+
+        if let Some(dir) = working_dir {
+            cmd.current_dir(dir);
+        }
 
         cmd.stdin(Stdio::piped());
         cmd.stdout(Stdio::piped());
@@ -308,14 +314,14 @@ lazy_static::lazy_static! {
     pub static ref PYTHON_KERNEL: Arc<Mutex<Option<PythonKernel>>> = Arc::new(Mutex::new(None));
 }
 
-pub fn get_or_init_python_kernel() -> Result<std::sync::MutexGuard<'static, Option<PythonKernel>>, String> {
+pub fn get_or_init_python_kernel(notebook_path: Option<String>) -> Result<std::sync::MutexGuard<'static, Option<PythonKernel>>, String> {
     let mut kernel_guard = PYTHON_KERNEL.lock().map_err(|_| "Failed to lock kernel mutex".to_string())?;
-    
+
     if kernel_guard.is_none() {
-        let kernel = PythonKernel::new()?;
+        let kernel = PythonKernel::new(notebook_path)?;
         *kernel_guard = Some(kernel);
     }
-    
+
     Ok(kernel_guard)
 }
 
@@ -593,6 +599,9 @@ impl RustKernel {
                 .collect();
                 
             return format!(r#"
+#![allow(unused_imports)]
+#![allow(dead_code)]
+#![allow(unused_variables)]
 {}
 
 // Newt Input Support
@@ -611,10 +620,6 @@ mod newt_io {{
         pub fn read_line(&self, buf: &mut String) -> io::Result<usize> {{
             let content = super::input();
             buf.push_str(&content);
-            // read_line typically includes the newline if user pressed enter.
-            // Our input() returns raw content. If it doesn't have newline, we might want to add it?
-            // But prompt() usually strips it? No, prompt returns text.
-            // Let's assume we should append newline to simulate terminal behavior.
             if !buf.ends_with('\n') {{
                 buf.push('\n');
             }}
@@ -661,6 +666,9 @@ fn main() {{
         
         // No statements and no user main. Generate empty main to ensure compilation.
         format!(r#"
+#![allow(unused_imports)]
+#![allow(dead_code)]
+#![allow(unused_variables)]
 {}
 
 // Newt Input Support
@@ -718,38 +726,117 @@ fn main() {{
     }
 
     fn compile_and_run(&self, source: &str) -> Result<KernelResponse, String> {
-        let temp_dir = std::env::temp_dir();
-        let file_name = format!("newt_rust_{}.rs", uuid::Uuid::new_v4());
-        let file_path = temp_dir.join(&file_name);
-        let bin_path = temp_dir.join(format!("newt_rust_bin_{}", uuid::Uuid::new_v4()));
+        // Check for external dependencies
+        let mut dependencies = std::collections::HashSet::new();
+        let use_regex = regex::Regex::new(r"(?m)^\s*use\s+([a-zA-Z0-9_]+)").unwrap();
+        let extern_regex = regex::Regex::new(r"(?m)^\s*extern\s+crate\s+([a-zA-Z0-9_]+)").unwrap();
 
-        std::fs::write(&file_path, source).map_err(|e| e.to_string())?;
-
-        let compile_output = Command::new("rustc")
-            .arg(&file_path)
-            .arg("-o")
-            .arg(&bin_path)
-            .output()
-            .map_err(|e| format!("Failed to run rustc: {}", e))?;
-
-        if !compile_output.status.success() {
-            let _ = std::fs::remove_file(&file_path);
-            return Err(String::from_utf8_lossy(&compile_output.stderr).to_string());
+        for cap in use_regex.captures_iter(source) {
+            let dep = cap[1].to_string();
+            if dep != "std" && dep != "core" && dep != "alloc" && dep != "crate" && dep != "super" && dep != "self" {
+                dependencies.insert(dep);
+            }
+        }
+        for cap in extern_regex.captures_iter(source) {
+            let dep = cap[1].to_string();
+            dependencies.insert(dep);
         }
 
-        let run_output = Command::new(&bin_path)
-            .output()
-            .map_err(|e| format!("Failed to run binary: {}", e))?;
+        if dependencies.is_empty() {
+            let temp_dir = std::env::temp_dir();
+            let file_name = format!("newt_rust_{}.rs", uuid::Uuid::new_v4());
+            let file_path = temp_dir.join(&file_name);
+            let bin_path = temp_dir.join(format!("newt_rust_bin_{}", uuid::Uuid::new_v4()));
 
-        let _ = std::fs::remove_file(&file_path);
-        let _ = std::fs::remove_file(&bin_path);
+            std::fs::write(&file_path, source).map_err(|e| e.to_string())?;
 
-        Ok(KernelResponse {
-            stdout: String::from_utf8_lossy(&run_output.stdout).to_string(),
-            stderr: String::from_utf8_lossy(&run_output.stderr).to_string(),
-            status: run_output.status.code(),
-            display_data: None,
-        })
+            let compile_output = Command::new("rustc")
+                .arg(&file_path)
+                .arg("-o")
+                .arg(&bin_path)
+                .output()
+                .map_err(|e| format!("Failed to run rustc: {}", e))?;
+
+            if !compile_output.status.success() {
+                let _ = std::fs::remove_file(&file_path);
+                return Err(String::from_utf8_lossy(&compile_output.stderr).to_string());
+            }
+
+            let run_output = Command::new(&bin_path)
+                .output()
+                .map_err(|e| format!("Failed to run binary: {}", e))?;
+
+            let _ = std::fs::remove_file(&file_path);
+            let _ = std::fs::remove_file(&bin_path);
+
+            Ok(KernelResponse {
+                stdout: String::from_utf8_lossy(&run_output.stdout).to_string(),
+                stderr: String::from_utf8_lossy(&run_output.stderr).to_string(),
+                status: run_output.status.code(),
+                display_data: None,
+            })
+        } else {
+            let temp_dir = std::env::temp_dir();
+            let project_dir = temp_dir.join("newt_rust_project");
+            
+            if !project_dir.exists() {
+                std::fs::create_dir_all(&project_dir).map_err(|e| e.to_string())?;
+                Command::new("cargo")
+                    .arg("init")
+                    .arg("--bin")
+                    .current_dir(&project_dir)
+                    .output()
+                    .map_err(|e| format!("Failed to init cargo project: {}", e))?;
+            }
+
+            let cargo_toml_path = project_dir.join("Cargo.toml");
+            let cargo_toml_content = std::fs::read_to_string(&cargo_toml_path).unwrap_or_default();
+            
+            for dep in dependencies {
+                if !cargo_toml_content.contains(&format!("{} =", dep)) && !cargo_toml_content.contains(&format!("\"{}\"", dep)) {
+                     let _ = Command::new("cargo")
+                        .arg("add")
+                        .arg(&dep)
+                        .current_dir(&project_dir)
+                        .output();
+                }
+            }
+
+            let main_rs_path = project_dir.join("src").join("main.rs");
+            std::fs::write(&main_rs_path, source).map_err(|e| e.to_string())?;
+
+            // Build first to separate build warnings from runtime output
+            let build_output = Command::new("cargo")
+                .arg("build")
+                .arg("--quiet")
+                .current_dir(&project_dir)
+                .output()
+                .map_err(|e| format!("Failed to build cargo project: {}", e))?;
+
+            if !build_output.status.success() {
+                return Err(String::from_utf8_lossy(&build_output.stderr).to_string());
+            }
+
+            // Run the binary directly to control working directory
+            // Assuming default binary name from cargo init (directory name)
+            let binary_name = "newt_rust_project";
+            let binary_path = project_dir.join("target").join("debug").join(binary_name);
+            
+            // Use current working directory of the server process
+            let current_dir = std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("."));
+
+            let run_output = Command::new(&binary_path)
+                .current_dir(&current_dir)
+                .output()
+                .map_err(|e| format!("Failed to run binary: {}", e))?;
+
+            Ok(KernelResponse {
+                stdout: String::from_utf8_lossy(&run_output.stdout).to_string(),
+                stderr: String::from_utf8_lossy(&run_output.stderr).to_string(),
+                status: run_output.status.code(),
+                display_data: None,
+            })
+        }
     }
 }
 
@@ -1200,29 +1287,9 @@ impl GoKernel {
                     }
                 }
             } else if trimmed.starts_with("type ") || trimmed.starts_with("func ") || trimmed.starts_with("const ") || trimmed.starts_with("var ") {
-                // It's a declaration.
-                // But wait, if it is "func main", we handle it differently.
                 if re_main.is_match(&processed_block) {
                     if is_last {
-                        // It is last. It has main.
-                        // We can just append it to top_level_decls.
-                        // But we also have main_body from other blocks (if any).
-                        // This is conflicting.
-                        // If user provides main, they probably want to control execution.
-                        // But if previous blocks were statements (wrapped in main), we want them to have run?
-                        // No, we are re-running everything.
-                        // So we want previous statements to run again?
-                        // Yes, persistence means state is preserved.
-                        // In "re-run history" model, we re-execute everything to rebuild state.
-                        // So we MUST run previous statements.
-                        
-                        // So we need to merge all "main bodies".
-                        // If a block was "func main() { ... }", we extract "..." and append to main_body.
-                        // If a block was statements, we append to main_body.
-                        
-                        // Extract body of main
-                        // This is hard with regex.
-                        // Let's assume standard formatting "func main() {"
+                        // assuming standard formatting "func main() {"
                         if let Some(start) = processed_block.find('{') {
                             if let Some(end) = processed_block.rfind('}') {
                                 if start < end {
