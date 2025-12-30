@@ -18,9 +18,17 @@ use ratatui::{
 use serde::{Deserialize, Deserializer, Serialize};
 use std::{error::Error, io, process::Command, path::PathBuf, fs};
 use std::io::Write;
+use syntect::highlighting::ThemeSet;
+use syntect::parsing::SyntaxSet;
+use syntect::easy::HighlightLines;
 
 pub mod server;
 pub mod markdown;
+
+lazy_static::lazy_static! {
+    static ref SYNTAX_SET: SyntaxSet = SyntaxSet::load_defaults_newlines();
+    static ref THEME_SET: ThemeSet = ThemeSet::load_defaults();
+}
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct FileItem {
@@ -2567,6 +2575,35 @@ fn run_interactive(command: &str) -> io::Result<()> {
         return Err(io::Error::new(io::ErrorKind::Other, "Command exited with error"));
     }
     Ok(())
+}
+
+fn highlight_code_line(line_text: &str, cell_type: &CellType) -> Line<'static> {
+    let syntax_name = match cell_type {
+        CellType::Rust => "Rust",
+        CellType::Python => "Python",
+        CellType::JavaScript => "JavaScript",
+        CellType::TypeScript => "TypeScript",
+        CellType::C => "C",
+        CellType::Cpp => "C++",
+        CellType::Go => "Go",
+        CellType::Shell => "Bash",
+        CellType::Markdown => return Line::from(line_text.to_string()),
+    };
+
+    let syntax = SYNTAX_SET.find_syntax_by_name(syntax_name)
+        .unwrap_or_else(|| SYNTAX_SET.find_syntax_plain_text());
+    let theme = &THEME_SET.themes["base16-ocean.dark"];
+
+    let mut highlighter = HighlightLines::new(syntax, theme);
+    let ranges = highlighter.highlight_line(line_text, &SYNTAX_SET).unwrap_or_default();
+
+    let spans: Vec<Span> = ranges.iter().map(|(style, text)| {
+        let fg = style.foreground;
+        let color = Color::Rgb(fg.r, fg.g, fg.b);
+        Span::styled(text.to_string(), Style::default().fg(color))
+    }).collect();
+
+    Line::from(spans)
 }
 
 fn ui(f: &mut Frame, app: &mut App) {
