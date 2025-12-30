@@ -8,6 +8,7 @@ import { Toolbar } from '../components/Toolbar';
 import { v4 as uuidv4 } from 'uuid';
 import { createKernel, ExecutionMode } from '../lib/kernels';
 import { arrayMove } from '@dnd-kit/sortable';
+import { parseMarkdown, toMarkdown } from '../lib/markdown';
 
 const API_URL = 'http://127.0.0.1:3030';
 
@@ -223,6 +224,28 @@ export default function App() {
     const local = getLocalFiles();
     setLocalFiles(local);
 
+    // Always build the browser section
+    const browserFiles: FileItem[] = [
+      {
+        path: null,
+        label: 'Browser',
+        is_header: true,
+        is_app_file: false,
+        is_directory: false,
+        is_expanded: false,
+        depth: 0
+      },
+      ...local.map(file => ({
+        path: file,
+        label: file,
+        is_header: false,
+        is_app_file: false,
+        is_directory: false,
+        is_expanded: false,
+        depth: 0
+      }))
+    ];
+
     try {
       const res = await fetch(`${API_URL}/files`, {
         method: 'POST',
@@ -230,18 +253,21 @@ export default function App() {
         body: JSON.stringify({ expanded_dirs: Array.from(expandedDirs) })
       });
       if (!res.ok) throw new Error(`HTTP error! status: ${res.status}`);
-      const fileItems: FileItem[] = await res.json();
-      setFiles(fileItems);
+      const backendFileItems: FileItem[] = await res.json();
+
+      // Combine browser files with backend files
+      setFiles([...browserFiles, ...backendFileItems]);
       setIsBackendAvailable(true);
 
       // Also extract backend files for compatibility
-      const backend = fileItems
+      const backend = backendFileItems
         .filter(f => !f.is_header && f.is_app_file && !f.is_directory && f.path)
         .map(f => f.path!.split('/').pop() || f.path!);
       setBackendFiles(backend);
     } catch (e) {
       console.warn("Failed to fetch backend files", e);
-      setFiles([]);
+      // Just show browser files when backend is unavailable
+      setFiles(browserFiles);
       setBackendFiles([]);
       setIsBackendAvailable(false);
     }
@@ -258,6 +284,15 @@ export default function App() {
       fetchFiles();
     }
   }, [expandedDirs]);
+
+  // Auto-refresh file list every 2 seconds (like TUI)
+  useEffect(() => {
+    const interval = setInterval(() => {
+      fetchFiles();
+    }, 2000);
+
+    return () => clearInterval(interval);
+  }, [fetchFiles]);
 
   // Key handler
   useEffect(() => {
@@ -632,7 +667,9 @@ export default function App() {
       setFilePath(path);
     }
 
-    const content = JSON.stringify(cells);
+    // Determine content format based on file extension
+    const ext = path.split('.').pop()?.toLowerCase();
+    const content = ext === 'md' ? toMarkdown(cells) : JSON.stringify(cells);
 
     if (fileOrigin === 'local') {
       saveLocalFile(path, content);
@@ -802,20 +839,32 @@ export default function App() {
     // Handle files
     if (!item.path) return;
 
-    const origin = item.is_app_file ? 'backend' : 'local';
+    // Determine if this is a browser file (localStorage) or backend file
+    const isBrowserFile = !item.is_app_file && files.findIndex(f => f === item) < files.findIndex(f => f.is_header && f.label !== 'Browser');
+    const origin: 'local' | 'backend' = isBrowserFile ? 'local' : (item.is_app_file ? 'backend' : 'local');
     const ext = item.path.split('.').pop()?.toLowerCase();
 
     try {
       let content: string;
 
-      // Read from backend
-      const res = await fetch(`${API_URL}/files/read`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ path: item.path })
-      });
-      if (!res.ok) throw new Error("Backend read failed");
-      content = await res.json();
+      // Read from browser localStorage or backend
+      if (isBrowserFile) {
+        const localContent = readLocalFile(item.path);
+        if (!localContent) {
+          setStatusMessage("Error reading local file");
+          return;
+        }
+        content = localContent;
+      } else {
+        // Read from backend
+        const res = await fetch(`${API_URL}/files/read`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ path: item.path })
+        });
+        if (!res.ok) throw new Error("Backend read failed");
+        content = await res.json();
+      }
 
       // Try to parse as notebook (.newt or .md with cells)
       if (ext === 'newt') {
@@ -832,12 +881,18 @@ export default function App() {
           return;
         }
       } else if (ext === 'md') {
-        // Try parsing as markdown notebook format
+        // Parse markdown format
         try {
-          // TODO: Parse markdown format like TUI does
-          // For now, display as code block
+          const parsedCells = parseMarkdown(content);
+          setCells(parsedCells);
+          setFilePath(item.path);
+          setFileOrigin(origin);
+          setFocus('editor');
+          setSelectedIndices([0]);
+          return;
         } catch (e) {
-          // Fall through to display as code block
+          setStatusMessage("Error parsing markdown");
+          return;
         }
       }
 
