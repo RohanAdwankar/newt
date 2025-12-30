@@ -101,6 +101,8 @@ pub struct CommandRequest {
     pub context: Option<Vec<String>>,
     #[serde(default)]
     pub client_type: Option<String>,
+    #[serde(default)]
+    pub notebook_path: Option<String>,
 }
 
 fn deserialize_context<'de, D>(deserializer: D) -> Result<Option<Vec<String>>, D::Error>
@@ -697,8 +699,15 @@ impl App {
             }
             
             let context_opt = if context.is_empty() { None } else { Some(context) };
+            let notebook_path_str = self.file_path.as_ref().map(|p| p.to_string_lossy().to_string());
 
-            Some(CommandRequest { command: cmd, language: lang, context: context_opt, client_type: Some("tui".to_string()) })
+            Some(CommandRequest {
+                command: cmd,
+                language: lang,
+                context: context_opt,
+                client_type: Some("tui".to_string()),
+                notebook_path: notebook_path_str,
+            })
         } else {
             None
         }
@@ -2577,7 +2586,7 @@ fn run_interactive(command: &str) -> io::Result<()> {
     Ok(())
 }
 
-fn highlight_code_line(line_text: &str, cell_type: &CellType) -> Line<'static> {
+fn highlight_code(code: &str, cell_type: &CellType) -> Vec<Line<'static>> {
     let syntax_name = match cell_type {
         CellType::Rust => "Rust",
         CellType::Python => "Python",
@@ -2587,23 +2596,74 @@ fn highlight_code_line(line_text: &str, cell_type: &CellType) -> Line<'static> {
         CellType::Cpp => "C++",
         CellType::Go => "Go",
         CellType::Shell => "Bash",
-        CellType::Markdown => return Line::from(line_text.to_string()),
+        CellType::Markdown => {
+            return code.lines().map(|line| Line::from(line.to_string())).collect();
+        }
     };
 
     let syntax = SYNTAX_SET.find_syntax_by_name(syntax_name)
         .unwrap_or_else(|| SYNTAX_SET.find_syntax_plain_text());
-    let theme = &THEME_SET.themes["base16-ocean.dark"];
 
+    // Use Solarized (dark) for better colors, fall back to base16-ocean.dark
+    let theme_key = if THEME_SET.themes.contains_key("Solarized (dark)") {
+        "Solarized (dark)"
+    } else {
+        "base16-ocean.dark"
+    };
+    let theme = &THEME_SET.themes[theme_key];
     let mut highlighter = HighlightLines::new(syntax, theme);
-    let ranges = highlighter.highlight_line(line_text, &SYNTAX_SET).unwrap_or_default();
 
-    let spans: Vec<Span> = ranges.iter().map(|(style, text)| {
-        let fg = style.foreground;
-        let color = Color::Rgb(fg.r, fg.g, fg.b);
-        Span::styled(text.to_string(), Style::default().fg(color))
-    }).collect();
+    code.lines().map(|line| {
+        let ranges = highlighter.highlight_line(line, &SYNTAX_SET).unwrap_or_default();
+        let spans: Vec<Span> = ranges.iter().map(|(style, text)| {
+            let fg = style.foreground;
+            // Convert RGB to approximate ANSI color for better terminal compatibility
+            let color = rgb_to_ansi_color(fg.r, fg.g, fg.b);
+            Span::styled(text.to_string(), Style::default().fg(color))
+        }).collect();
+        Line::from(spans)
+    }).collect()
+}
 
-    Line::from(spans)
+// Convert RGB color to nearest ANSI color
+fn rgb_to_ansi_color(r: u8, g: u8, b: u8) -> Color {
+    // Calculate brightness
+    let brightness = (r as u32 + g as u32 + b as u32) / 3;
+
+    // Determine which color component is dominant
+    let max_component = r.max(g).max(b);
+    let min_component = r.min(g).min(b);
+    let saturation = if max_component > 0 {
+        ((max_component - min_component) as f32 / max_component as f32) * 100.0
+    } else {
+        0.0
+    };
+
+    // If low saturation, it's a grey/white/black
+    if saturation < 20.0 {
+        if brightness < 85 {
+            Color::DarkGray
+        } else if brightness < 170 {
+            Color::Gray
+        } else {
+            Color::White
+        }
+    } else {
+        // Determine the hue based on which component is dominant
+        if r > g && r > b {
+            if brightness > 128 { Color::LightRed } else { Color::Red }
+        } else if g > r && g > b {
+            if brightness > 128 { Color::LightGreen } else { Color::Green }
+        } else if b > r && b > g {
+            if brightness > 128 { Color::LightBlue } else { Color::Blue }
+        } else if r > b && g > b {
+            if brightness > 128 { Color::LightYellow } else { Color::Yellow }
+        } else if r > g && b > g {
+            if brightness > 128 { Color::LightMagenta } else { Color::Magenta }
+        } else {
+            if brightness > 128 { Color::LightCyan } else { Color::Cyan }
+        }
+    }
 }
 
 fn ui(f: &mut Frame, app: &mut App) {
@@ -2807,16 +2867,16 @@ fn ui(f: &mut Frame, app: &mut App) {
                         Span::styled(header_str.clone(), style),
                     ]));
                  } else {
-                     let mut lines_iter = cell.content.lines();
-                     if let Some(first_line) = lines_iter.next() {
-                         let first_padding_len = width.saturating_sub(first_line.len() + header_str.len()).saturating_sub(2);
+                     let highlighted_lines = highlight_code(&cell.content, &cell.cell_type);
+                     if let Some(mut first_line) = highlighted_lines.first().cloned() {
+                         let first_line_len = first_line.spans.iter().map(|s| s.content.len()).sum::<usize>();
+                         let first_padding_len = width.saturating_sub(first_line_len + header_str.len()).saturating_sub(2);
                          let first_padding = " ".repeat(first_padding_len);
-                         let mut highlighted = highlight_code_line(first_line, &cell.cell_type);
-                         highlighted.spans.push(Span::raw(first_padding));
-                         highlighted.spans.push(Span::styled(header_str.clone(), style));
-                         cell_lines.push(highlighted);
-                         for line in lines_iter {
-                             cell_lines.push(highlight_code_line(line, &cell.cell_type));
+                         first_line.spans.push(Span::raw(first_padding));
+                         first_line.spans.push(Span::styled(header_str.clone(), style));
+                         cell_lines.push(first_line);
+                         for line in highlighted_lines.into_iter().skip(1) {
+                             cell_lines.push(line);
                          }
                      }
                  }
@@ -2830,10 +2890,10 @@ fn ui(f: &mut Frame, app: &mut App) {
                  if cell.content.is_empty() {
                      cell_lines.push(Line::from("     (empty)"));
                  } else {
-                     for line in cell.content.lines() {
-                         let mut highlighted = highlight_code_line(line, &cell.cell_type);
-                         highlighted.spans.insert(0, Span::raw("     "));
-                         cell_lines.push(highlighted);
+                     let highlighted_lines = highlight_code(&cell.content, &cell.cell_type);
+                     for mut line in highlighted_lines {
+                         line.spans.insert(0, Span::raw("     "));
+                         cell_lines.push(line);
                      }
                  }
              }
