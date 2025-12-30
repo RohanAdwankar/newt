@@ -262,7 +262,7 @@ impl App {
             popup_prompt: String::new(),
             overwrite_path: None,
             editor: std::env::var("EDITOR").unwrap_or_else(|_| "vi".to_string()),
-            accent_color: Color::Indexed(40),
+            accent_color: Color::Indexed(183),  // Pastel purple/mauve (default for pastel colorscheme)
             display_mode: "compact".to_string(),
             colorscheme: "pastel".to_string(),
             dirty: false,
@@ -729,9 +729,6 @@ impl App {
                 if let Some(editor) = config.editor {
                     self.editor = editor;
                 }
-                if let Some(color_index) = config.accent_color {
-                    self.accent_color = Color::Indexed(color_index);
-                }
                 if let Some(mode) = config.display_mode {
                     self.display_mode = mode;
                 }
@@ -740,6 +737,8 @@ impl App {
                 }
             }
         }
+        // Set accent_color based on colorscheme
+        self.accent_color = self.get_accent_color();
     }
 
     fn save_config(&self) {
@@ -753,14 +752,45 @@ impl App {
         };
 
         config.editor = Some(self.editor.clone());
-        if let Color::Indexed(i) = self.accent_color {
-            config.accent_color = Some(i);
-        }
         config.display_mode = Some(self.display_mode.clone());
         config.colorscheme = Some(self.colorscheme.clone());
 
         if let Ok(json) = serde_json::to_string_pretty(&config) {
             let _ = fs::write(path, json);
+        }
+    }
+
+    // Get accent color based on colorscheme
+    fn get_accent_color(&self) -> Color {
+        if self.colorscheme == "pastel" {
+            Color::Indexed(183)  // Pastel purple/mauve
+        } else {
+            Color::Magenta  // ANSI magenta
+        }
+    }
+
+    // Get markdown heading colors based on colorscheme
+    fn get_h1_color(&self) -> Color {
+        if self.colorscheme == "pastel" {
+            Color::Indexed(117)  // Pastel blue
+        } else {
+            Color::Blue  // ANSI blue
+        }
+    }
+
+    fn get_h2_color(&self) -> Color {
+        if self.colorscheme == "pastel" {
+            Color::Indexed(152)  // Pastel cyan
+        } else {
+            Color::Cyan  // ANSI cyan
+        }
+    }
+
+    fn get_h3_color(&self) -> Color {
+        if self.colorscheme == "pastel" {
+            Color::Indexed(114)  // Pastel green
+        } else {
+            Color::Green  // ANSI green
         }
     }
 
@@ -2938,11 +2968,11 @@ fn ui(f: &mut Frame, app: &mut App) {
                  } else {
                      for line in cell.content.lines() {
                          if line.starts_with("# ") {
-                             cell_lines.push(Line::from(Span::styled(line, Style::default().fg(Color::Blue).add_modifier(Modifier::BOLD))));
+                             cell_lines.push(Line::from(Span::styled(line, Style::default().fg(app.get_h1_color()).add_modifier(Modifier::BOLD))));
                          } else if line.starts_with("## ") {
-                             cell_lines.push(Line::from(Span::styled(line, Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD))));
+                             cell_lines.push(Line::from(Span::styled(line, Style::default().fg(app.get_h2_color()).add_modifier(Modifier::BOLD))));
                          } else if line.starts_with("### ") {
-                             cell_lines.push(Line::from(Span::styled(line, Style::default().fg(Color::Green).add_modifier(Modifier::BOLD))));
+                             cell_lines.push(Line::from(Span::styled(line, Style::default().fg(app.get_h3_color()).add_modifier(Modifier::BOLD))));
                          } else if line.starts_with("- ") || line.starts_with("* ") {
                              cell_lines.push(Line::from(format!("  • {}", &line[2..])));
                          } else {
