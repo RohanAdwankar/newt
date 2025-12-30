@@ -84,6 +84,9 @@ impl SearchState {
 #[derive(Parser, Debug)]
 #[command(author, version, about, long_about = None)]
 struct Args {
+    /// Path to a file to open
+    file_path: Option<String>,
+
     /// Open a specific notebook file or the file menu
     #[arg(short, long, num_args=0..=1, default_missing_value = "")]
     open: Option<String>,
@@ -896,8 +899,27 @@ pub async fn run() -> Result<(), Box<dyn Error>> {
     let backend = CrosstermBackend::new(stdout);
     let mut terminal = Terminal::new(backend)?;
 
+    // Handle positional file path argument
+    let file_to_open = if let Some(file_path) = args.file_path {
+        let path = std::path::PathBuf::from(&file_path);
+
+        // If a directory is specified, change to it
+        if let Some(parent) = path.parent() {
+            if parent.as_os_str() != "" {
+                std::env::set_current_dir(parent)?;
+            }
+        }
+
+        // Get just the filename to pass to App::new
+        path.file_name()
+            .and_then(|n| n.to_str())
+            .map(|s| s.to_string())
+    } else {
+        args.open
+    };
+
     // Create app
-    let mut app = App::new(args.open);
+    let mut app = App::new(file_to_open);
 
     // Run app
     let res = run_app(&mut terminal, &mut app).await;
