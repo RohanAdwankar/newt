@@ -561,6 +561,7 @@ pub struct Config {
     pub editor: Option<String>,
     pub accent_color: Option<u8>,
     pub display_mode: Option<String>,
+    pub colorscheme: Option<String>,
 }
 
 pub async fn get_config() -> Json<Config> {
@@ -593,6 +594,9 @@ pub async fn update_config(Json(config): Json<Config>) -> Json<String> {
             }
             if final_config.display_mode.is_none() {
                 final_config.display_mode = existing.display_mode;
+            }
+            if final_config.colorscheme.is_none() {
+                final_config.colorscheme = existing.colorscheme;
             }
         }
     }

@@ -206,6 +206,7 @@ pub struct App {
     pub editor: String,
     pub accent_color: Color,
     pub display_mode: String,
+    pub colorscheme: String,
     pub dirty: bool,
     pub last_file_refresh: std::time::Instant,
     pub numeric_prefix: Option<usize>,
@@ -263,6 +264,7 @@ impl App {
             editor: std::env::var("EDITOR").unwrap_or_else(|_| "vi".to_string()),
             accent_color: Color::Indexed(40),
             display_mode: "compact".to_string(),
+            colorscheme: "pastel".to_string(),
             dirty: false,
             last_file_refresh: std::time::Instant::now(),
             numeric_prefix: None,
@@ -733,6 +735,9 @@ impl App {
                 if let Some(mode) = config.display_mode {
                     self.display_mode = mode;
                 }
+                if let Some(scheme) = config.colorscheme {
+                    self.colorscheme = scheme;
+                }
             }
         }
     }
@@ -752,6 +757,7 @@ impl App {
             config.accent_color = Some(i);
         }
         config.display_mode = Some(self.display_mode.clone());
+        config.colorscheme = Some(self.colorscheme.clone());
 
         if let Ok(json) = serde_json::to_string_pretty(&config) {
             let _ = fs::write(path, json);
@@ -1902,6 +1908,17 @@ async fn run_app<B: Backend + std::io::Write>(terminal: &mut Terminal<B>, app: &
                                 app.status_message = Some("Display mode set to cozy".to_string());
                                 app.input_mode = InputMode::Normal;
                                 app.command_input.clear();
+                            } else if cmd.starts_with("colorscheme ") {
+                                let scheme = cmd[12..].trim().to_string();
+                                if scheme == "ansi" || scheme == "pastel" {
+                                    app.colorscheme = scheme.clone();
+                                    app.save_config();
+                                    app.status_message = Some(format!("Colorscheme set to {}", scheme));
+                                } else {
+                                    app.status_message = Some("Invalid colorscheme. Use 'ansi' or 'pastel'".to_string());
+                                }
+                                app.input_mode = InputMode::Normal;
+                                app.command_input.clear();
                             } else if let Ok(line_num) = cmd.parse::<usize>() {
                                 // Jump to line number (1-indexed)
                                 if line_num > 0 && line_num <= app.cells.len() {
@@ -2586,7 +2603,7 @@ fn run_interactive(command: &str) -> io::Result<()> {
     Ok(())
 }
 
-fn highlight_code(code: &str, cell_type: &CellType) -> Vec<Line<'static>> {
+fn highlight_code(code: &str, cell_type: &CellType, colorscheme: &str) -> Vec<Line<'static>> {
     let syntax_name = match cell_type {
         CellType::Rust => "Rust",
         CellType::Python => "Python",
@@ -2617,8 +2634,12 @@ fn highlight_code(code: &str, cell_type: &CellType) -> Vec<Line<'static>> {
         let ranges = highlighter.highlight_line(line, &SYNTAX_SET).unwrap_or_default();
         let spans: Vec<Span> = ranges.iter().map(|(style, text)| {
             let fg = style.foreground;
-            // Convert RGB to approximate ANSI color for better terminal compatibility
-            let color = rgb_to_ansi_color(fg.r, fg.g, fg.b);
+            // Convert RGB to color based on colorscheme
+            let color = if colorscheme == "pastel" {
+                rgb_to_pastel_color(fg.r, fg.g, fg.b)
+            } else {
+                rgb_to_ansi_color(fg.r, fg.g, fg.b)
+            };
             Span::styled(text.to_string(), Style::default().fg(color))
         }).collect();
         Line::from(spans)
@@ -2662,6 +2683,79 @@ fn rgb_to_ansi_color(r: u8, g: u8, b: u8) -> Color {
             if brightness > 128 { Color::LightMagenta } else { Color::Magenta }
         } else {
             if brightness > 128 { Color::LightCyan } else { Color::Cyan }
+        }
+    }
+}
+
+// Convert RGB color to pastel indexed color
+fn rgb_to_pastel_color(r: u8, g: u8, b: u8) -> Color {
+    // Calculate brightness
+    let brightness = (r as u32 + g as u32 + b as u32) / 3;
+
+    // Determine which color component is dominant
+    let max_component = r.max(g).max(b);
+    let min_component = r.min(g).min(b);
+    let saturation = if max_component > 0 {
+        ((max_component - min_component) as f32 / max_component as f32) * 100.0
+    } else {
+        0.0
+    };
+
+    // If low saturation, it's a grey
+    if saturation < 20.0 {
+        // Use light grey from 256-color palette
+        if brightness < 85 {
+            Color::Indexed(244)  // Dark grey
+        } else if brightness < 170 {
+            Color::Indexed(250)  // Medium grey
+        } else {
+            Color::Indexed(253)  // Light grey
+        }
+    } else {
+        // Determine the hue based on which component is dominant
+        // Use pastel indexed colors from the 256-color palette
+        if r > g && r > b {
+            // Red/Pink tones
+            if brightness > 128 {
+                Color::Indexed(217)  // Light pink
+            } else {
+                Color::Indexed(211)  // Pastel red
+            }
+        } else if g > r && g > b {
+            // Green tones
+            if brightness > 128 {
+                Color::Indexed(156)  // Light pastel green
+            } else {
+                Color::Indexed(114)  // Pastel green
+            }
+        } else if b > r && b > g {
+            // Blue tones
+            if brightness > 128 {
+                Color::Indexed(153)  // Light pastel blue
+            } else {
+                Color::Indexed(117)  // Pastel blue
+            }
+        } else if r > b && g > b {
+            // Yellow tones
+            if brightness > 128 {
+                Color::Indexed(229)  // Light pastel yellow
+            } else {
+                Color::Indexed(222)  // Pastel yellow
+            }
+        } else if r > g && b > g {
+            // Magenta/Purple tones
+            if brightness > 128 {
+                Color::Indexed(219)  // Light pastel magenta
+            } else {
+                Color::Indexed(182)  // Pastel magenta
+            }
+        } else {
+            // Cyan tones
+            if brightness > 128 {
+                Color::Indexed(159)  // Light pastel cyan
+            } else {
+                Color::Indexed(152)  // Pastel cyan
+            }
         }
     }
 }
@@ -2867,7 +2961,7 @@ fn ui(f: &mut Frame, app: &mut App) {
                         Span::styled(header_str.clone(), style),
                     ]));
                  } else {
-                     let highlighted_lines = highlight_code(&cell.content, &cell.cell_type);
+                     let highlighted_lines = highlight_code(&cell.content, &cell.cell_type, &app.colorscheme);
                      if let Some(mut first_line) = highlighted_lines.first().cloned() {
                          let first_line_len = first_line.spans.iter().map(|s| s.content.len()).sum::<usize>();
                          let first_padding_len = width.saturating_sub(first_line_len + header_str.len()).saturating_sub(2);
@@ -2890,7 +2984,7 @@ fn ui(f: &mut Frame, app: &mut App) {
                  if cell.content.is_empty() {
                      cell_lines.push(Line::from("     (empty)"));
                  } else {
-                     let highlighted_lines = highlight_code(&cell.content, &cell.cell_type);
+                     let highlighted_lines = highlight_code(&cell.content, &cell.cell_type, &app.colorscheme);
                      for mut line in highlighted_lines {
                          line.spans.insert(0, Span::raw("     "));
                          cell_lines.push(line);
