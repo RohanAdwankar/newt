@@ -10,7 +10,6 @@ print(evalCheck)
 ```
 >> True
 
-
 An alternative approach is using globals() to check the symbols.
 
 ```python
@@ -22,6 +21,5 @@ localsCheck = check(userInput)
 print(localsCheck)
 ```
 >> True
-
 
 Both yield the same output.
