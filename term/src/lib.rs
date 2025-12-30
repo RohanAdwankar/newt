@@ -1881,6 +1881,18 @@ async fn run_app<B: Backend + std::io::Write>(terminal: &mut Terminal<B>, app: &
                                 }
                                 app.input_mode = InputMode::Normal;
                                 app.command_input.clear();
+                            } else if let Ok(line_num) = cmd.parse::<usize>() {
+                                // Jump to line number (1-indexed)
+                                if line_num > 0 && line_num <= app.cells.len() {
+                                    app.list_state.select(Some(line_num - 1)); // Convert to 0-indexed
+                                    app.status_message = Some(format!("Jumped to cell {}", line_num));
+                                } else if line_num == 0 {
+                                    app.status_message = Some("Invalid line number: must be >= 1".to_string());
+                                } else {
+                                    app.status_message = Some(format!("Invalid line number: only {} cells", app.cells.len()));
+                                }
+                                app.input_mode = InputMode::Normal;
+                                app.command_input.clear();
                             } else {
                                 match app.command_input.as_str() {
                                 "q" => {
@@ -2865,9 +2877,24 @@ fn ui(f: &mut Frame, app: &mut App) {
                     String::new()
                 };
 
-                let full_status = format!("{}{}{}", status, search_info, position_info);
+                // Build left side (status + search info) and right side (position info)
+                let left_text = format!("{}{}", status, search_info);
+                let right_text = position_info;
+
+                // Calculate spacing to right-align position info
+                let left_len = left_text.chars().count();
+                let right_len = right_text.chars().count();
+                let total_width = bottom_bar_area.width as usize;
+
+                let spacing = if left_len + right_len < total_width {
+                    " ".repeat(total_width - left_len - right_len)
+                } else {
+                    String::new()
+                };
+
+                let full_status = format!("{}{}{}", left_text, spacing, right_text);
                 let status_block = Paragraph::new(full_status)
-                .style(Style::default().fg(Color::DarkGray));
+                    .style(Style::default().fg(Color::DarkGray));
                 f.render_widget(status_block, bottom_bar_area);
         }
         InputMode::Renaming => {
