@@ -196,8 +196,7 @@ def main():
                 if res:
                     display_outputs.append(res)
             
-            # We need to inject display into the globals or builtins for this run
-            # But builtins.display is global. 
+            # builtins.display is global. 
             builtins.display = _display
             builtins.input = _newt_input
 
@@ -614,10 +613,6 @@ mod newt_io {{
         pub fn read_line(&self, buf: &mut String) -> io::Result<usize> {{
             let content = super::input();
             buf.push_str(&content);
-            // read_line typically includes the newline if user pressed enter.
-            // Our input() returns raw content. If it doesn't have newline, we might want to add it?
-            // But prompt() usually strips it? No, prompt returns text.
-            // Let's assume we should append newline to simulate terminal behavior.
             if !buf.ends_with('\n') {{
                 buf.push('\n');
             }}
@@ -1285,29 +1280,9 @@ impl GoKernel {
                     }
                 }
             } else if trimmed.starts_with("type ") || trimmed.starts_with("func ") || trimmed.starts_with("const ") || trimmed.starts_with("var ") {
-                // It's a declaration.
-                // But wait, if it is "func main", we handle it differently.
                 if re_main.is_match(&processed_block) {
                     if is_last {
-                        // It is last. It has main.
-                        // We can just append it to top_level_decls.
-                        // But we also have main_body from other blocks (if any).
-                        // This is conflicting.
-                        // If user provides main, they probably want to control execution.
-                        // But if previous blocks were statements (wrapped in main), we want them to have run?
-                        // No, we are re-running everything.
-                        // So we want previous statements to run again?
-                        // Yes, persistence means state is preserved.
-                        // In "re-run history" model, we re-execute everything to rebuild state.
-                        // So we MUST run previous statements.
-                        
-                        // So we need to merge all "main bodies".
-                        // If a block was "func main() { ... }", we extract "..." and append to main_body.
-                        // If a block was statements, we append to main_body.
-                        
-                        // Extract body of main
-                        // This is hard with regex.
-                        // Let's assume standard formatting "func main() {"
+                        // assuming standard formatting "func main() {"
                         if let Some(start) = processed_block.find('{') {
                             if let Some(end) = processed_block.rfind('}') {
                                 if start < end {

@@ -914,11 +914,6 @@ async fn run_app<B: Backend + std::io::Write>(terminal: &mut Terminal<B>, app: &
         // Check for input requests
         if app.input_mode != InputMode::InputPopup {
             let _client = client.clone();
-            // We can't await here easily in the sync loop, so we spawn a check
-            // But we need to get the result back to the main thread.
-            // Let's use another channel for input requests?
-            // Or just do a blocking check since it's local fs?
-            // The server writes to a file in temp dir.
             let temp_dir = std::env::temp_dir();
             let req_path = temp_dir.join("newt_web_input_req");
             let res_path = temp_dir.join("newt_web_input_res");
@@ -987,12 +982,7 @@ async fn run_app<B: Backend + std::io::Write>(terminal: &mut Terminal<B>, app: &
                         }
                         _ => {
                             app.pending_key = None;
-                            // Fall through to handle the second key as a normal key if sequence failed?
-                            // Or just consume it? Usually consume and reset.
-                            // But if I type ' ' then 'a', maybe 'a' should be handled?
-                            // For now, let's just reset and ignore the second key if it doesn't match.
-                            // Or better, re-process the key if it wasn't part of a sequence?
-                            // Let's keep it simple: if sequence fails, key is consumed.
+                            // if sequence fails, key is consumed.
                         }
                     }
                 } else {

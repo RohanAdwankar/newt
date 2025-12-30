@@ -128,11 +128,6 @@ export const SortableCell: React.FC<SortableCellProps> = ({
                 // @ts-ignore
                 const cm = view.cm; // vim extension attaches cm instance
                 if (e.key === 'Escape' && cm) {
-                    // Check if in normal mode
-                    // The vim extension exposes state via cm.state.vim
-                    // But it's tricky to access.
-                    // Alternatively, if we are in normal mode, 'Escape' usually does nothing or clears selection.
-                    // If we press Escape and we are NOT in insert mode, we want to exit editing.
                     
                     // @ts-ignore
                     const state = cm.state.vim;

@@ -79,12 +79,6 @@ describe('CellList', () => {
       />
     );
 
-    // Double click on the first cell container
-    // Note: We need to find the container. The text is inside a pre, which is inside a div.
-    // The double click handler is on the outer div.
-    // Let's try double clicking the text, which should bubble up unless stopped.
-    // But we added stopPropagation to the pre's onMouseDown, not onDoubleClick.
-    // Wait, we didn't add onDoubleClick to pre, so it should bubble to div.
     fireEvent.doubleClick(screen.getByText((_, element) => element?.textContent === 'print("hello")' && element?.classList.contains('cm-line')));
     expect(onEditCell).toHaveBeenCalledWith(0);
   });
