@@ -49,7 +49,7 @@ pub async fn execute_command(Json(payload): Json<CommandRequest>) -> Json<Comman
 
     let response = match language {
         "rust" => execute_rust(payload.command, payload.context).await,
-        "python" => execute_python(payload.command, payload.context, payload.client_type).await,
+        "python" => execute_python(payload.command, payload.context, payload.client_type, payload.notebook_path).await,
         "javascript" => execute_javascript(payload.command, payload.context),
         "typescript" => execute_typescript(payload.command, payload.context).await,
         "c" => execute_c(payload.command, payload.context).await,
@@ -179,11 +179,11 @@ async fn execute_rust(code: String, context: Option<Vec<String>>) -> Json<Comman
 
 
 
-async fn execute_python(code: String, context: Option<Vec<String>>, client_type: Option<String>) -> Json<CommandResponse> {
+async fn execute_python(code: String, context: Option<Vec<String>>, client_type: Option<String>, notebook_path: Option<String>) -> Json<CommandResponse> {
     tokio::task::spawn_blocking(move || {
         use crate::server::kernel::{self, Kernel};
         // Try to use persistent kernel
-        match kernel::get_or_init_python_kernel() {
+        match kernel::get_or_init_python_kernel(notebook_path) {
             Ok(mut kernel_guard) => {
                 if let Some(kernel) = kernel_guard.as_mut() {
                     match kernel.execute(code, None, context, client_type) {

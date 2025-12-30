@@ -50,7 +50,7 @@ impl Kernel for PythonKernel {
 }
 
 impl PythonKernel {
-    pub fn new() -> Result<Self, String> {
+    pub fn new(notebook_path: Option<String>) -> Result<Self, String> {
         // Create a directory for outputs (images)
         let images_dir = if let Some(proj_dirs) = ProjectDirs::from("com", "newt", "newt") {
             let data_dir = proj_dirs.data_dir();
@@ -277,9 +277,16 @@ if __name__ == "__main__":
         cmd.arg("python");
         cmd.arg(&script_path);
 
-        // Set the working directory to the current directory so uv can find pyproject.toml
-        if let Ok(current_dir) = std::env::current_dir() {
-            cmd.current_dir(current_dir);
+        // Set the working directory to the notebook's directory so uv can find pyproject.toml
+        // If no notebook path is available, fall back to current directory
+        let working_dir = if let Some(ref nb_path) = notebook_path {
+            std::path::Path::new(nb_path).parent().map(|p| p.to_path_buf())
+        } else {
+            None
+        }.or_else(|| std::env::current_dir().ok());
+
+        if let Some(dir) = working_dir {
+            cmd.current_dir(dir);
         }
 
         cmd.stdin(Stdio::piped());
@@ -307,14 +314,14 @@ lazy_static::lazy_static! {
     pub static ref PYTHON_KERNEL: Arc<Mutex<Option<PythonKernel>>> = Arc::new(Mutex::new(None));
 }
 
-pub fn get_or_init_python_kernel() -> Result<std::sync::MutexGuard<'static, Option<PythonKernel>>, String> {
+pub fn get_or_init_python_kernel(notebook_path: Option<String>) -> Result<std::sync::MutexGuard<'static, Option<PythonKernel>>, String> {
     let mut kernel_guard = PYTHON_KERNEL.lock().map_err(|_| "Failed to lock kernel mutex".to_string())?;
-    
+
     if kernel_guard.is_none() {
-        let kernel = PythonKernel::new()?;
+        let kernel = PythonKernel::new(notebook_path)?;
         *kernel_guard = Some(kernel);
     }
-    
+
     Ok(kernel_guard)
 }
 
