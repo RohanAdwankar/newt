@@ -974,6 +974,17 @@ async fn run_app<B: Backend + std::io::Write>(terminal: &mut Terminal<B>, app: &
                             app.pending_key = None;
                             continue;
                         }
+                        ('g', KeyCode::Char('g')) => {
+                            // gg - go to top (either sidebar or editor depending on focus)
+                            if app.focus == Focus::Sidebar {
+                                app.file_list_state.select(Some(0));
+                            } else {
+                                app.list_state.select(Some(0));
+                            }
+                            app.pending_key = None;
+                            app.numeric_prefix = None;
+                            continue;
+                        }
                         _ => {
                             app.pending_key = None;
                             // Fall through to handle the second key as a normal key if sequence failed?
@@ -988,6 +999,11 @@ async fn run_app<B: Backend + std::io::Write>(terminal: &mut Terminal<B>, app: &
                     // Start sequence?
                     if app.input_mode == InputMode::Normal && key.code == KeyCode::Char(' ') {
                         app.pending_key = Some(' ');
+                        continue;
+                    }
+                    // Start gg sequence
+                    if app.input_mode == InputMode::Normal && key.code == KeyCode::Char('g') {
+                        app.pending_key = Some('g');
                         continue;
                     }
                 }
@@ -1033,16 +1049,6 @@ async fn run_app<B: Backend + std::io::Write>(terminal: &mut Terminal<B>, app: &
                                         } else {
                                             // Go to last item
                                             app.file_list_state.select(Some(app.available_files.len().saturating_sub(1)));
-                                        }
-                                        app.numeric_prefix = None;
-                                    }
-                                    KeyCode::Char('g') => {
-                                        if app.pending_key == Some('g') {
-                                            // gg - go to top
-                                            app.file_list_state.select(Some(0));
-                                            app.pending_key = None;
-                                        } else {
-                                            app.pending_key = Some('g');
                                         }
                                         app.numeric_prefix = None;
                                     }
@@ -1388,16 +1394,6 @@ async fn run_app<B: Backend + std::io::Write>(terminal: &mut Terminal<B>, app: &
                                         } else {
                                             // Go to last cell
                                             app.list_state.select(Some(visual_items.len().saturating_sub(1)));
-                                        }
-                                        app.numeric_prefix = None;
-                                    }
-                                    KeyCode::Char('g') => {
-                                        if app.pending_key == Some('g') {
-                                            // gg - go to top
-                                            app.list_state.select(Some(0));
-                                            app.pending_key = None;
-                                        } else {
-                                            app.pending_key = Some('g');
                                         }
                                         app.numeric_prefix = None;
                                     }

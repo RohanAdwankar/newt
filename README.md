@@ -62,6 +62,11 @@ newts
 | Focus Editor | `space l` | `Arrow Right` |
 | Toggle Sidebar | `Space e` | Toolbar |
 | Search | `/` | - |
+| Move to Next/Previous Search Match | `n/N` | - |
+| Jump to Top | `gg` | Toolbar |
+| Jump to Bottom | `G` | Toolbar |
+| Jump to Cell 3 | `:3` or `3G` | Toolbar |
+| Move 3 Cells Down | `3j` | |
 | **Cell Operations** | | |
 | Edit Cell | `i` | `Enter` |
 | Open Output Cell In Editor | `I` | - |
@@ -85,6 +90,9 @@ newts
 | Open Folder | `l` | - |
 | Close Folder | `h` | - |
 | Toggle Folder | `enter` | - |
+| Move 3 Files Down | `3j` | |
+| Jump to Top (Create New Notebook) | `gg` | |
+| Jump to Bottom | `G` | |
 | **Commands** | | |
 | Run All Cells | `:ra` | Run All Button |
 | Export Notebook | `:export` | Toolbar |
