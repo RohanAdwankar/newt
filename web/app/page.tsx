@@ -846,7 +846,9 @@ export default function App() {
         'rs': 'rust',
         'py': 'python',
         'js': 'javascript',
+        'jsx': 'javascript',
         'ts': 'typescript',
+        'tsx': 'typescript',
         'c': 'c',
         'cpp': 'cpp',
         'cc': 'cpp',
@@ -1099,10 +1101,19 @@ export default function App() {
     }
   };
 
+  const newFile = () => {
+    setCells([{ id: uuidv4(), content: '', output: '', type: 'python' }]);
+    setFilePath(null);
+    setFocus('editor');
+    setSelectedIndices([0]);
+    setStatusMessage('New file created');
+  };
+
   return (
     <div className="flex flex-col h-screen w-screen bg-bg-primary text-text-primary overflow-hidden">
       <Toolbar
         onSave={saveNotebook}
+        onNewFile={newFile}
         onShare={exportNotebook}
         onNewCell={() => addCell(primaryIndex + 1)}
         onCut={() => { copyCells(); deleteCells(); }}

@@ -1,8 +1,9 @@
 import React from 'react';
-import { Save, Plus, Scissors, Copy, Clipboard, Play, Square, RotateCw, Layers, Settings, Folder, Moon, Sun, Keyboard, Timer, Share, Maximize2, Minimize2, Search } from 'lucide-react';
+import { Save, Plus, Scissors, Copy, Clipboard, Play, Square, RotateCw, Layers, Settings, Folder, Moon, Sun, Keyboard, Timer, Share, Maximize2, Minimize2, Search, FileText } from 'lucide-react';
 
 interface ToolbarProps {
   onSave: () => void;
+  onNewFile: () => void;
   onShare: () => void;
   onNewCell: () => void;
   onCut: () => void;
@@ -29,6 +30,7 @@ interface ToolbarProps {
 
 export const Toolbar: React.FC<ToolbarProps> = ({
   onSave,
+  onNewFile,
   onShare,
   onNewCell,
   onCut,
@@ -62,6 +64,9 @@ export const Toolbar: React.FC<ToolbarProps> = ({
       <div className="w-px h-6 bg-border-color mx-1" />
       <button onClick={onSave} className={btnClass} title="Save (Ctrl+S)">
         <Save size={18} />
+      </button>
+      <button onClick={onNewFile} className={btnClass} title="New File">
+        <FileText size={18} />
       </button>
       <button onClick={onShare} className={btnClass} title="Export to Markdown">
         <Share size={18} />
