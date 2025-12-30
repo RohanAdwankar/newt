@@ -505,7 +505,7 @@ pub fn app() -> Router {
     Router::new()
         .route("/exec", post(execute_command))
         .route("/export", post(export_notebook))
-        .route("/files", get(list_files))
+        .route("/files", post(list_files))
         .route("/files/read", post(read_file))
         .route("/files/save", post(save_file))
         .route("/files/rename", post(rename_file))
@@ -605,21 +605,131 @@ pub async fn update_config(Json(config): Json<Config>) -> Json<String> {
     Json("Error saving config".to_string())
 }
 
-pub async fn list_files() -> Json<Vec<String>> {
-    let dir = get_app_dir();
+#[derive(Serialize, Deserialize, Clone)]
+pub struct FileItem {
+    pub path: Option<String>,
+    pub label: String,
+    pub is_header: bool,
+    pub is_app_file: bool,
+    pub is_directory: bool,
+    pub is_expanded: bool,
+    pub depth: usize,
+}
+
+#[derive(Deserialize)]
+pub struct ListFilesRequest {
+    #[serde(default)]
+    expanded_dirs: Vec<String>,
+}
+
+pub async fn list_files(Json(req): Json<ListFilesRequest>) -> Json<Vec<FileItem>> {
     let mut files = Vec::new();
+
+    // Convert expanded directories to a HashSet of PathBufs
+    let expanded_dirs: std::collections::HashSet<PathBuf> = req
+        .expanded_dirs
+        .iter()
+        .map(|s| PathBuf::from(s))
+        .collect();
+
+    // Local Files Header
+    let cwd = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
+    let cwd_label = cwd
+        .file_name()
+        .map(|n| n.to_string_lossy().to_string())
+        .unwrap_or_else(|| cwd.to_string_lossy().to_string());
+
+    files.push(FileItem {
+        path: None,
+        label: cwd_label,
+        is_header: true,
+        is_app_file: false,
+        is_directory: false,
+        is_expanded: false,
+        depth: 0,
+    });
+
+    // Build hierarchical tree for local files
+    build_directory_tree(&cwd, 0, false, &mut files, &expanded_dirs);
+
+    // App Files Header
+    files.push(FileItem {
+        path: None,
+        label: "Application Files".to_string(),
+        is_header: true,
+        is_app_file: true,
+        is_directory: false,
+        is_expanded: false,
+        depth: 0,
+    });
+
+    // Build hierarchical tree for app files
+    let app_dir = get_app_dir();
+    build_directory_tree(&app_dir, 0, true, &mut files, &expanded_dirs);
+
+    Json(files)
+}
+
+fn build_directory_tree(
+    dir: &PathBuf,
+    depth: usize,
+    is_app_file: bool,
+    files: &mut Vec<FileItem>,
+    expanded_dirs: &std::collections::HashSet<PathBuf>,
+) {
     if let Ok(entries) = fs::read_dir(dir) {
-        for entry in entries.flatten() {
-            let path = entry.path();
-            if path.extension().map_or(false, |ext| ext == "newt") {
-                if let Some(name) = path.file_name() {
-                    files.push(name.to_string_lossy().to_string());
+        let mut items: Vec<(PathBuf, bool)> = entries
+            .flatten()
+            .map(|e| {
+                let path = e.path();
+                let is_dir = path.is_dir();
+                (path, is_dir)
+            })
+            .collect();
+
+        // Sort: directories first, then files, alphabetically within each group
+        items.sort_by(|a, b| {
+            match (a.1, b.1) {
+                (true, false) => std::cmp::Ordering::Less,
+                (false, true) => std::cmp::Ordering::Greater,
+                _ => a.0.cmp(&b.0),
+            }
+        });
+
+        for (path, is_dir) in items {
+            // Skip hidden files/directories
+            if let Some(name) = path.file_name() {
+                if name.to_string_lossy().starts_with('.') {
+                    continue;
                 }
+            }
+
+            // For app files, only show .newt and .md files (but always show directories)
+            if is_app_file && !is_dir {
+                if !path.extension().map_or(false, |ext| ext == "newt" || ext == "md") {
+                    continue;
+                }
+            }
+
+            let label = path.file_name().unwrap().to_string_lossy().to_string();
+            let is_expanded = expanded_dirs.contains(&path);
+
+            files.push(FileItem {
+                path: Some(path.to_string_lossy().to_string()),
+                label,
+                is_header: false,
+                is_app_file,
+                is_directory: is_dir,
+                is_expanded,
+                depth,
+            });
+
+            // Recursively add children if directory is expanded
+            if is_dir && is_expanded {
+                build_directory_tree(&path, depth + 1, is_app_file, files, expanded_dirs);
             }
         }
     }
-    files.sort();
-    Json(files)
 }
 
 #[derive(Deserialize)]
@@ -646,18 +756,47 @@ pub struct CopyRequest {
 }
 
 pub async fn read_file(Json(req): Json<FilePath>) -> Json<String> {
-    let mut path = get_app_dir();
-    path.push(req.path);
-    match fs::read_to_string(path) {
+    // If path is absolute or starts from current directory, use it directly
+    // Otherwise, treat it as relative to app directory (for backwards compatibility)
+    let path = PathBuf::from(&req.path);
+    let final_path = if path.is_absolute() {
+        path
+    } else {
+        // Check if it exists in current directory first
+        let cwd_path = std::env::current_dir().unwrap_or_else(|_| PathBuf::from(".")).join(&path);
+        if cwd_path.exists() {
+            cwd_path
+        } else {
+            // Fall back to app directory
+            get_app_dir().join(&path)
+        }
+    };
+
+    match fs::read_to_string(final_path) {
         Ok(content) => Json(content),
         Err(_) => Json("".to_string()),
     }
 }
 
 pub async fn save_file(Json(req): Json<SaveRequest>) -> Json<String> {
-    let mut path = get_app_dir();
-    path.push(req.path);
-    match fs::write(path, req.content) {
+    // If path is absolute or starts from current directory, use it directly
+    // Otherwise, treat it as relative to app directory (for backwards compatibility)
+    let path = PathBuf::from(&req.path);
+    let final_path = if path.is_absolute() {
+        path
+    } else {
+        // Check if it exists in current directory first, or if parent exists in cwd
+        let cwd = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
+        let cwd_path = cwd.join(&path);
+        if cwd_path.exists() || (cwd_path.parent().map_or(false, |p| p.exists())) {
+            cwd_path
+        } else {
+            // Fall back to app directory
+            get_app_dir().join(&path)
+        }
+    };
+
+    match fs::write(final_path, req.content) {
         Ok(_) => Json("OK".to_string()),
         Err(e) => Json(format!("Error: {}", e)),
     }

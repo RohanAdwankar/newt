@@ -1,5 +1,5 @@
 import React from 'react';
-import { Save, Plus, Scissors, Copy, Clipboard, Play, Square, RotateCw, Layers, Settings, Folder, Moon, Sun, Keyboard, Timer, Share, Maximize2, Minimize2 } from 'lucide-react';
+import { Save, Plus, Scissors, Copy, Clipboard, Play, Square, RotateCw, Layers, Settings, Folder, Moon, Sun, Keyboard, Timer, Share, Maximize2, Minimize2, Search } from 'lucide-react';
 
 interface ToolbarProps {
   onSave: () => void;
@@ -13,6 +13,7 @@ interface ToolbarProps {
   onRestart: () => void;
   onRunAll: () => void;
   onPolling: () => void;
+  onSearch?: () => void;
   executionMode?: 'client' | 'remote';
   onExecutionModeChange?: (mode: 'client' | 'remote') => void;
   cellType?: string;
@@ -38,6 +39,7 @@ export const Toolbar: React.FC<ToolbarProps> = ({
   onRestart,
   onRunAll,
   onPolling,
+  onSearch,
   executionMode = 'remote',
   onExecutionModeChange,
   cellType,
@@ -64,6 +66,11 @@ export const Toolbar: React.FC<ToolbarProps> = ({
       <button onClick={onShare} className={btnClass} title="Export to Markdown">
         <Share size={18} />
       </button>
+      {onSearch && (
+        <button onClick={onSearch} className={btnClass} title="Search (Ctrl+F)">
+          <Search size={18} />
+        </button>
+      )}
       <div className="w-px h-6 bg-border-color mx-1" />
       <button onClick={onNewCell} className={btnClass} title="New Cell (A/B)">
         <Plus size={18} />

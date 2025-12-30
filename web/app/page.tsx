@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useState, useEffect, useCallback, useRef } from 'react';
-import { Sidebar } from '../components/Sidebar';
+import { Sidebar, FileItem } from '../components/Sidebar';
 import { CellList, Cell, CellType } from '../components/CellList';
 import { CommandBar } from '../components/CommandBar';
 import { Toolbar } from '../components/Toolbar';
@@ -16,6 +16,8 @@ type InputMode = 'normal' | 'editing' | 'command' | 'renaming' | 'polling' | 'co
 
 export default function App() {
   const [cells, setCells] = useState<Cell[]>([]);
+  const [files, setFiles] = useState<FileItem[]>([]);
+  const [expandedDirs, setExpandedDirs] = useState<Set<string>>(new Set());
   const [localFiles, setLocalFiles] = useState<string[]>([]);
   const [backendFiles, setBackendFiles] = useState<string[]>([]);
   const [focus, setFocus] = useState<Focus>('editor');
@@ -39,8 +41,13 @@ export default function App() {
   const [isBackendAvailable, setIsBackendAvailable] = useState(false);
   const [vimMode, setVimMode] = useState(true);
   const [fullscreenCellId, setFullscreenCellId] = useState<string | null>(null);
+  const [showSearchModal, setShowSearchModal] = useState(false);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [searchResults, setSearchResults] = useState<number[]>([]);
+  const [currentSearchIndex, setCurrentSearchIndex] = useState(0);
   const spacePressedRef = useRef(false);
   const pollingInputRef = useRef<HTMLInputElement>(null);
+  const searchInputRef = useRef<HTMLInputElement>(null);
 
   // Helper to get primary selection (last selected)
   const primaryIndex = selectedIndices.length > 0 ? selectedIndices[selectedIndices.length - 1] : 0;
@@ -217,22 +224,40 @@ export default function App() {
     setLocalFiles(local);
 
     try {
-      const res = await fetch(`${API_URL}/files`);
+      const res = await fetch(`${API_URL}/files`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ expanded_dirs: Array.from(expandedDirs) })
+      });
       if (!res.ok) throw new Error(`HTTP error! status: ${res.status}`);
-      const backend = await res.json();
-      setBackendFiles(backend);
+      const fileItems: FileItem[] = await res.json();
+      setFiles(fileItems);
       setIsBackendAvailable(true);
+
+      // Also extract backend files for compatibility
+      const backend = fileItems
+        .filter(f => !f.is_header && f.is_app_file && !f.is_directory && f.path)
+        .map(f => f.path!.split('/').pop() || f.path!);
+      setBackendFiles(backend);
     } catch (e) {
       console.warn("Failed to fetch backend files", e);
+      setFiles([]);
       setBackendFiles([]);
       setIsBackendAvailable(false);
     }
-  }, [getLocalFiles]);
+  }, [getLocalFiles, expandedDirs]);
 
   useEffect(() => {
     fetchFiles();
     fetchConfig();
   }, [fetchFiles, fetchConfig]);
+
+  // Refetch files when expandedDirs changes
+  useEffect(() => {
+    if (isBackendAvailable) {
+      fetchFiles();
+    }
+  }, [expandedDirs]);
 
   // Key handler
   useEffect(() => {
@@ -584,15 +609,15 @@ export default function App() {
 
     if (!path) {
       // Generate default name
-      let defaultName = "notebook.newt";
+      let defaultName = "notebook.md";
       const existingFiles = fileOrigin === 'local' ? localFiles : backendFiles;
 
       if (existingFiles.includes(defaultName)) {
         let counter = 1;
-        while (existingFiles.includes(`notebook${counter}.newt`)) {
+        while (existingFiles.includes(`notebook${counter}.md`)) {
           counter++;
         }
-        defaultName = `notebook${counter}.newt`;
+        defaultName = `notebook${counter}.md`;
       }
 
       const name = window.prompt("Enter notebook name:", defaultName);
@@ -601,8 +626,8 @@ export default function App() {
         return;
       }
       path = name;
-      if (!path.endsWith('.newt')) {
-        path += '.newt';
+      if (!path.endsWith('.md') && !path.endsWith('.newt')) {
+        path += '.md';
       }
       setFilePath(path);
     }
@@ -753,63 +778,97 @@ export default function App() {
   };
 
   const openFile = async (index: number) => {
-    const localCount = localFiles.length;
-    const computerStartIndex = localCount + 1;
+    const item = files[index];
+    if (!item) return;
 
-    if (index === 0) {
-      // New Local Notebook
-      setCells([{ id: uuidv4(), content: '', output: '', type: 'python' }]);
-      setFilePath(null);
-      setFileOrigin('local');
-      setFocus('editor');
-      setSelectedIndices([0]);
-    } else if (index <= localCount) {
-      // Open Local File
-      const file = localFiles[index - 1];
-      const content = readLocalFile(file);
-      if (content) {
-        try {
-          const loadedCells = JSON.parse(content);
-          setCells(loadedCells);
-          setFilePath(file);
-          setFileOrigin('local');
-          setFocus('editor');
-          setSelectedIndices([0]);
-        } catch (e) {
-          setStatusMessage("Error parsing local notebook");
+    // Handle directory toggle
+    if (item.is_directory && item.path) {
+      setExpandedDirs(prev => {
+        const next = new Set(prev);
+        if (next.has(item.path!)) {
+          next.delete(item.path!);
+        } else {
+          next.add(item.path!);
         }
-      }
-    } else if (isBackendAvailable && index === computerStartIndex) {
-      // New Backend Notebook
-      setCells([{ id: uuidv4(), content: '', output: '', type: 'python' }]);
-      setFilePath(null);
-      setFileOrigin('backend');
-      setFocus('editor');
-      setSelectedIndices([0]);
-    } else if (isBackendAvailable && index > computerStartIndex) {
-      // Open Backend File
-      const file = backendFiles[index - computerStartIndex - 1];
-      try {
-        const res = await fetch(`${API_URL}/files/read`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ path: file })
-        });
-        if (!res.ok) throw new Error("Backend read failed");
-        const content = await res.json();
+        return next;
+      });
+      // fetchFiles will be called automatically due to expandedDirs change
+      return;
+    }
+
+    // Ignore headers
+    if (item.is_header) return;
+
+    // Handle files
+    if (!item.path) return;
+
+    const origin = item.is_app_file ? 'backend' : 'local';
+    const ext = item.path.split('.').pop()?.toLowerCase();
+
+    try {
+      let content: string;
+
+      // Read from backend
+      const res = await fetch(`${API_URL}/files/read`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ path: item.path })
+      });
+      if (!res.ok) throw new Error("Backend read failed");
+      content = await res.json();
+
+      // Try to parse as notebook (.newt or .md with cells)
+      if (ext === 'newt') {
         try {
           const loadedCells = JSON.parse(content);
           setCells(loadedCells);
-          setFilePath(file);
-          setFileOrigin('backend');
+          setFilePath(item.path);
+          setFileOrigin(origin);
           setFocus('editor');
           setSelectedIndices([0]);
+          return;
         } catch (e) {
           setStatusMessage("Error parsing notebook");
+          return;
         }
-      } catch (e) {
-        setStatusMessage("Error reading file");
+      } else if (ext === 'md') {
+        // Try parsing as markdown notebook format
+        try {
+          // TODO: Parse markdown format like TUI does
+          // For now, display as code block
+        } catch (e) {
+          // Fall through to display as code block
+        }
       }
+
+      // Display non-notebook files as a single code cell
+      const languageMap: Record<string, CellType> = {
+        'rs': 'rust',
+        'py': 'python',
+        'js': 'javascript',
+        'ts': 'typescript',
+        'c': 'c',
+        'cpp': 'cpp',
+        'cc': 'cpp',
+        'go': 'go',
+        'sh': 'shell',
+        'md': 'markdown'
+      };
+
+      const cellType = languageMap[ext || ''] || 'shell';
+      setCells([{
+        id: uuidv4(),
+        content,
+        output: '',
+        type: cellType
+      }]);
+      setFilePath(item.path);
+      setFileOrigin(origin);
+      setFocus('editor');
+      setSelectedIndices([0]);
+      setStatusMessage(`Opened ${item.label} as read-only`);
+    } catch (e) {
+      setStatusMessage("Error reading file");
     }
   };
 
@@ -993,6 +1052,53 @@ export default function App() {
     }
   };
 
+  const handleSearch = (query: string) => {
+    setSearchQuery(query);
+    if (!query) {
+      setSearchResults([]);
+      setCurrentSearchIndex(0);
+      return;
+    }
+
+    const results: number[] = [];
+    const lowerQuery = query.toLowerCase();
+
+    cells.forEach((cell, index) => {
+      if (cell.content.toLowerCase().includes(lowerQuery) ||
+          cell.output.toLowerCase().includes(lowerQuery)) {
+        results.push(index);
+      }
+    });
+
+    setSearchResults(results);
+    setCurrentSearchIndex(0);
+
+    if (results.length > 0) {
+      setSelectedIndices([results[0]]);
+    }
+  };
+
+  const nextSearchResult = () => {
+    if (searchResults.length === 0) return;
+    const nextIndex = (currentSearchIndex + 1) % searchResults.length;
+    setCurrentSearchIndex(nextIndex);
+    setSelectedIndices([searchResults[nextIndex]]);
+  };
+
+  const prevSearchResult = () => {
+    if (searchResults.length === 0) return;
+    const prevIndex = currentSearchIndex === 0 ? searchResults.length - 1 : currentSearchIndex - 1;
+    setCurrentSearchIndex(prevIndex);
+    setSelectedIndices([searchResults[prevIndex]]);
+  };
+
+  const toggleSearch = () => {
+    setShowSearchModal(prev => !prev);
+    if (!showSearchModal) {
+      setTimeout(() => searchInputRef.current?.focus(), 100);
+    }
+  };
+
   return (
     <div className="flex flex-col h-screen w-screen bg-bg-primary text-text-primary overflow-hidden">
       <Toolbar
@@ -1012,6 +1118,7 @@ export default function App() {
             setContextMenu({ x: window.innerWidth / 2 - 100, y: 60, cellId });
           }
         }}
+        onSearch={toggleSearch}
         executionMode={executionMode}
         onExecutionModeChange={setExecutionMode}
         cellType={cells[primaryIndex]?.type}
@@ -1026,8 +1133,7 @@ export default function App() {
       />
       <div className="flex-1 flex overflow-hidden">
         <Sidebar
-          localFiles={localFiles}
-          backendFiles={backendFiles}
+          files={files}
           isBackendAvailable={isBackendAvailable}
           selectedIndex={selectedFileIndex}
           focused={focus === 'sidebar'}
@@ -1189,6 +1295,59 @@ export default function App() {
               autoFocus
             />
           </div>
+        </div>
+      )}
+
+      {showSearchModal && (
+        <div className="absolute inset-0 flex items-start justify-center pt-20 bg-black/50 z-50">
+          <div className="bg-bg-secondary border border-accent p-4 rounded w-96">
+            <div className="text-accent font-bold mb-2">Search</div>
+            <input
+              ref={searchInputRef}
+              className="w-full bg-bg-tertiary text-text-primary p-2 outline-none border border-border-color focus:border-accent mb-2"
+              value={searchQuery}
+              onChange={(e) => handleSearch(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Escape') {
+                  setShowSearchModal(false);
+                } else if (e.key === 'Enter') {
+                  if (e.shiftKey) {
+                    prevSearchResult();
+                  } else {
+                    nextSearchResult();
+                  }
+                }
+              }}
+              placeholder="Search in cells..."
+              autoFocus
+            />
+            <div className="flex items-center justify-between text-sm text-text-secondary">
+              <span>
+                {searchResults.length > 0
+                  ? `${currentSearchIndex + 1} of ${searchResults.length} results`
+                  : searchQuery
+                  ? 'No results'
+                  : 'Enter search query'}
+              </span>
+              <div className="flex gap-2">
+                <button
+                  className="bg-bg-tertiary hover:bg-bg-primary px-3 py-1 rounded text-text-primary disabled:opacity-50"
+                  onClick={prevSearchResult}
+                  disabled={searchResults.length === 0}
+                >
+                  Previous
+                </button>
+                <button
+                  className="bg-bg-tertiary hover:bg-bg-primary px-3 py-1 rounded text-text-primary disabled:opacity-50"
+                  onClick={nextSearchResult}
+                  disabled={searchResults.length === 0}
+                >
+                  Next
+                </button>
+              </div>
+            </div>
+          </div>
+          <div className="fixed inset-0 -z-10" onClick={() => setShowSearchModal(false)} />
         </div>
       )}
 
