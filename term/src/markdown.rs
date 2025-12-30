@@ -10,9 +10,15 @@ pub fn parse_markdown(content: &str) -> Vec<Cell> {
             // Flush current text as Markdown cell
             if !current_text.trim().is_empty() {
                  let id = uuid::Uuid::new_v4().to_string();
+                 // Remove leading newline if present
+                 let content = if current_text.starts_with('\n') {
+                     &current_text[1..]
+                 } else {
+                     &current_text
+                 };
                  cells.push(Cell {
                      id,
-                     content: current_text.trim_end().to_string(),
+                     content: content.trim_end().to_string(),
                      output: String::new(),
                      cell_type: CellType::Markdown,
                      polling_interval: None,
@@ -89,9 +95,15 @@ pub fn parse_markdown(content: &str) -> Vec<Cell> {
     // Flush remaining text
     if !current_text.trim().is_empty() {
          let id = uuid::Uuid::new_v4().to_string();
+         // Remove leading newline if present
+         let content = if current_text.starts_with('\n') {
+             &current_text[1..]
+         } else {
+             &current_text
+         };
          cells.push(Cell {
              id,
-             content: current_text.trim_end().to_string(),
+             content: content.trim_end().to_string(),
              output: String::new(),
              cell_type: CellType::Markdown,
              polling_interval: None,
