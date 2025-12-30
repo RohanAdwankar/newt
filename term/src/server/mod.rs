@@ -560,6 +560,7 @@ pub struct Config {
     pub theme: Option<String>,
     pub editor: Option<String>,
     pub accent_color: Option<u8>,
+    pub display_mode: Option<String>,
 }
 
 pub async fn get_config() -> Json<Config> {
@@ -589,6 +590,9 @@ pub async fn update_config(Json(config): Json<Config>) -> Json<String> {
             }
             if final_config.accent_color.is_none() {
                 final_config.accent_color = existing.accent_color;
+            }
+            if final_config.display_mode.is_none() {
+                final_config.display_mode = existing.display_mode;
             }
         }
     }

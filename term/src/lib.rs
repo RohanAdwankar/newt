@@ -195,6 +195,7 @@ pub struct App {
     pub overwrite_path: Option<PathBuf>,
     pub editor: String,
     pub accent_color: Color,
+    pub display_mode: String,
     pub dirty: bool,
     pub last_file_refresh: std::time::Instant,
     pub numeric_prefix: Option<usize>,
@@ -251,6 +252,7 @@ impl App {
             overwrite_path: None,
             editor: std::env::var("EDITOR").unwrap_or_else(|_| "vi".to_string()),
             accent_color: Color::Indexed(40),
+            display_mode: "compact".to_string(),
             dirty: false,
             last_file_refresh: std::time::Instant::now(),
             numeric_prefix: None,
@@ -711,6 +713,9 @@ impl App {
                 if let Some(color_index) = config.accent_color {
                     self.accent_color = Color::Indexed(color_index);
                 }
+                if let Some(mode) = config.display_mode {
+                    self.display_mode = mode;
+                }
             }
         }
     }
@@ -718,18 +723,19 @@ impl App {
     fn save_config(&self) {
         let mut path = get_app_dir();
         path.push("config.json");
-        
+
         let mut config = if let Ok(content) = fs::read_to_string(&path) {
             serde_json::from_str::<server::Config>(&content).unwrap_or_default()
         } else {
             server::Config::default()
         };
-        
+
         config.editor = Some(self.editor.clone());
         if let Color::Indexed(i) = self.accent_color {
             config.accent_color = Some(i);
         }
-        
+        config.display_mode = Some(self.display_mode.clone());
+
         if let Ok(json) = serde_json::to_string_pretty(&config) {
             let _ = fs::write(path, json);
         }
@@ -1867,6 +1873,18 @@ async fn run_app<B: Backend + std::io::Write>(terminal: &mut Terminal<B>, app: &
                                 }
                                 app.input_mode = InputMode::Normal;
                                 app.command_input.clear();
+                            } else if cmd == "compact" {
+                                app.display_mode = "compact".to_string();
+                                app.save_config();
+                                app.status_message = Some("Display mode set to compact".to_string());
+                                app.input_mode = InputMode::Normal;
+                                app.command_input.clear();
+                            } else if cmd == "cozy" {
+                                app.display_mode = "cozy".to_string();
+                                app.save_config();
+                                app.status_message = Some("Display mode set to cozy".to_string());
+                                app.input_mode = InputMode::Normal;
+                                app.command_input.clear();
                             } else if let Ok(line_num) = cmd.parse::<usize>() {
                                 // Jump to line number (1-indexed)
                                 if line_num > 0 && line_num <= app.cells.len() {
@@ -2678,18 +2696,43 @@ fn ui(f: &mut Frame, app: &mut App) {
 
         if cell.cell_type == CellType::Markdown {
              let is_editing_this = app.input_mode == InputMode::Editing && is_selected;
-             
+
              if is_editing_this {
-                 cell_lines.push(Line::from(vec![
-                    Span::styled("In:", style),
-                    Span::raw(padding.clone()),
-                    Span::styled(header_str.clone(), style),
-                ]));
-                 if cell.content.is_empty() {
-                     cell_lines.push(Line::from("     (empty)"));
+                 if app.display_mode == "compact" {
+                     if cell.content.is_empty() {
+                         cell_lines.push(Line::from(vec![
+                            Span::raw("(empty)"),
+                            Span::raw(" ".repeat(width.saturating_sub(7 + header_str.len()))),
+                            Span::styled(header_str.clone(), style),
+                        ]));
+                     } else {
+                         let mut lines_iter = cell.content.lines();
+                         if let Some(first_line) = lines_iter.next() {
+                             let first_padding_len = width.saturating_sub(first_line.len() + header_str.len()).saturating_sub(2);
+                             let first_padding = " ".repeat(first_padding_len);
+                             cell_lines.push(Line::from(vec![
+                                Span::raw(first_line),
+                                Span::raw(first_padding),
+                                Span::styled(header_str.clone(), style),
+                            ]));
+                             for line in lines_iter {
+                                 cell_lines.push(Line::from(line));
+                             }
+                         }
+                     }
                  } else {
-                     for line in cell.content.lines() {
-                         cell_lines.push(Line::from(format!("     {}", line)));
+                     // Cozy mode: original rendering
+                     cell_lines.push(Line::from(vec![
+                        Span::styled("In:", style),
+                        Span::raw(padding.clone()),
+                        Span::styled(header_str.clone(), style),
+                    ]));
+                     if cell.content.is_empty() {
+                         cell_lines.push(Line::from("     (empty)"));
+                     } else {
+                         for line in cell.content.lines() {
+                             cell_lines.push(Line::from(format!("     {}", line)));
+                         }
                      }
                  }
              } else {
@@ -2718,46 +2761,91 @@ fn ui(f: &mut Frame, app: &mut App) {
                  }
              }
         } else {
-             cell_lines.push(Line::from(vec![
-                Span::styled("In:", style),
-                Span::raw(padding),
-                Span::styled(header_str, style),
-            ]));
-             if cell.content.is_empty() {
-                 cell_lines.push(Line::from("     (empty)"));
+             if app.display_mode == "compact" {
+                 // Compact mode: first line with tag, no "In:" label, with syntax highlighting
+                 if cell.content.is_empty() {
+                     cell_lines.push(Line::from(vec![
+                        Span::raw("(empty)"),
+                        Span::raw(" ".repeat(width.saturating_sub(7 + header_str.len()))),
+                        Span::styled(header_str.clone(), style),
+                    ]));
+                 } else {
+                     let mut lines_iter = cell.content.lines();
+                     if let Some(first_line) = lines_iter.next() {
+                         let first_padding_len = width.saturating_sub(first_line.len() + header_str.len()).saturating_sub(2);
+                         let first_padding = " ".repeat(first_padding_len);
+                         let mut highlighted = highlight_code_line(first_line, &cell.cell_type);
+                         highlighted.spans.push(Span::raw(first_padding));
+                         highlighted.spans.push(Span::styled(header_str.clone(), style));
+                         cell_lines.push(highlighted);
+                         for line in lines_iter {
+                             cell_lines.push(highlight_code_line(line, &cell.cell_type));
+                         }
+                     }
+                 }
              } else {
-                 for line in cell.content.lines() {
-                     cell_lines.push(Line::from(format!("     {}", line)));
+                 // Cozy mode: original rendering with syntax highlighting
+                 cell_lines.push(Line::from(vec![
+                    Span::styled("In:", style),
+                    Span::raw(padding),
+                    Span::styled(header_str, style),
+                ]));
+                 if cell.content.is_empty() {
+                     cell_lines.push(Line::from("     (empty)"));
+                 } else {
+                     for line in cell.content.lines() {
+                         let mut highlighted = highlight_code_line(line, &cell.cell_type);
+                         highlighted.spans.insert(0, Span::raw("     "));
+                         cell_lines.push(highlighted);
+                     }
                  }
              }
         };
         
         // Output Section (combined)
         if cell.cell_type != CellType::Markdown {
-            cell_lines.push(Line::from("")); // Spacer between input and output
-            
             let output_style = if is_selected {
                 Style::default().fg(app.accent_color).add_modifier(Modifier::BOLD)
             } else {
                 Style::default()
             };
 
-            if !cell.output.is_empty() {
-                cell_lines.push(Line::from(Span::styled("Out:", output_style)));
-                let lines: Vec<&str> = cell.output.lines().collect();
-                if lines.len() > 10 {
-                    for line in lines.iter().take(10) {
-                        cell_lines.push(Line::from(format!("     {}", line)));
-                    }
-                    cell_lines.push(Line::from("     ....."));
-                } else {
-                    for line in lines {
-                        cell_lines.push(Line::from(format!("     {}", line)));
+            if app.display_mode == "compact" {
+                // Compact mode: use ">>" prefix, no "Out:" label
+                if !cell.output.is_empty() {
+                    let lines: Vec<&str> = cell.output.lines().collect();
+                    if lines.len() > 10 {
+                        for line in lines.iter().take(10) {
+                            cell_lines.push(Line::from(format!(">>  {}", line)));
+                        }
+                        cell_lines.push(Line::from(">>  ....."));
+                    } else {
+                        for line in lines {
+                            cell_lines.push(Line::from(format!(">>  {}", line)));
+                        }
                     }
                 }
             } else {
-                 cell_lines.push(Line::from(Span::styled("Out:", output_style)));
-                 cell_lines.push(Line::from("     (empty)"));
+                // Cozy mode: original rendering with "Out:" label
+                cell_lines.push(Line::from("")); // Spacer between input and output
+
+                if !cell.output.is_empty() {
+                    cell_lines.push(Line::from(Span::styled("Out:", output_style)));
+                    let lines: Vec<&str> = cell.output.lines().collect();
+                    if lines.len() > 10 {
+                        for line in lines.iter().take(10) {
+                            cell_lines.push(Line::from(format!("     {}", line)));
+                        }
+                        cell_lines.push(Line::from("     ....."));
+                    } else {
+                        for line in lines {
+                            cell_lines.push(Line::from(format!("     {}", line)));
+                        }
+                    }
+                } else {
+                     cell_lines.push(Line::from(Span::styled("Out:", output_style)));
+                     cell_lines.push(Line::from("     (empty)"));
+                }
             }
         }
 
