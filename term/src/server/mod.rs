@@ -9,11 +9,18 @@ use directories::ProjectDirs;
 use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::PathBuf;
+use std::sync::Mutex;
+use lazy_static::lazy_static;
 
 pub mod kernel;
 use tower_http::cors::{CorsLayer, Any};
 
 use crate::{CommandRequest, CommandResponse, CellType, Notebook, ExportResponse};
+
+// Global working directory state for shell commands
+lazy_static! {
+    static ref SHELL_WORKING_DIR: Mutex<Option<PathBuf>> = Mutex::new(None);
+}
 
 #[derive(Serialize, Deserialize)]
 pub struct InputStatusResponse {
@@ -112,10 +119,82 @@ async fn execute_shell(command: String) -> Json<CommandResponse> {
         });
     }
 
-    let program = parts[0].to_string();
+    let program = parts[0];
+
+    // Handle cd command specially
+    if program == "cd" {
+        let target_dir_str = if parts.len() > 1 {
+            parts[1].to_string()
+        } else {
+            // cd with no arguments goes to home directory
+            "~".to_string()
+        };
+
+        // Resolve the target directory
+        let mut working_dir = SHELL_WORKING_DIR.lock().unwrap();
+        let current_dir = working_dir.as_ref()
+            .cloned()
+            .or_else(|| std::env::current_dir().ok())
+            .unwrap_or_else(|| PathBuf::from("."));
+
+        let new_dir = if target_dir_str.starts_with('/') {
+            PathBuf::from(&target_dir_str)
+        } else if target_dir_str == "~" {
+            dirs::home_dir().unwrap_or_else(|| PathBuf::from("."))
+        } else if target_dir_str.starts_with("~/") {
+            let home = dirs::home_dir().unwrap_or_else(|| PathBuf::from("."));
+            home.join(&target_dir_str[2..])
+        } else {
+            current_dir.join(&target_dir_str)
+        };
+
+        // Canonicalize and check if directory exists
+        match new_dir.canonicalize() {
+            Ok(canonical_dir) => {
+                if canonical_dir.is_dir() {
+                    *working_dir = Some(canonical_dir.clone());
+                    return Json(CommandResponse {
+                        stdout: "".to_string(),
+                        stderr: "".to_string(),
+                        status: Some(0),
+                        display_data: None,
+                    });
+                } else {
+                    return Json(CommandResponse {
+                        stdout: "".to_string(),
+                        stderr: format!("cd: not a directory: {}", target_dir_str),
+                        status: Some(1),
+                        display_data: None,
+                    });
+                }
+            }
+            Err(_) => {
+                return Json(CommandResponse {
+                    stdout: "".to_string(),
+                    stderr: format!("cd: no such file or directory: {}", target_dir_str),
+                    status: Some(1),
+                    display_data: None,
+                });
+            }
+        }
+    }
+
+    // For other commands, execute in the current working directory
+    let current_dir = {
+        let working_dir = SHELL_WORKING_DIR.lock().unwrap();
+        working_dir.as_ref()
+            .cloned()
+            .or_else(|| std::env::current_dir().ok())
+            .unwrap_or_else(|| PathBuf::from("."))
+    }; // MutexGuard dropped here
+
     let args: Vec<String> = parts[1..].iter().map(|s| s.to_string()).collect();
 
-    let output = tokio::process::Command::new(program).args(args).output().await;
+    let output = tokio::process::Command::new(program)
+        .args(args)
+        .current_dir(current_dir)
+        .output()
+        .await;
 
     match output {
         Ok(output) => Json(CommandResponse {

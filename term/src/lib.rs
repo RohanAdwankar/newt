@@ -94,6 +94,14 @@ struct Args {
     /// Run in server mode (no TUI)
     #[arg(long)]
     serve: bool,
+
+    /// Convert terminal output to newt markdown
+    #[arg(long)]
+    term: Option<String>,
+
+    /// Skip confirmation prompt when using --term
+    #[arg(long)]
+    quiet: bool,
 }
 
 #[derive(Serialize, Deserialize, Debug)]
@@ -601,7 +609,7 @@ impl App {
     }
 
     fn save_notebook(&mut self, filename: Option<&str>) -> io::Result<()> {
-        let path = if let Some(name) = filename {
+        let mut path = if let Some(name) = filename {
              let p = PathBuf::from(name);
              if p.is_absolute() {
                  p
@@ -614,7 +622,7 @@ impl App {
         } else {
              let mut p = std::env::current_dir()?;
              p.push("notebook.md");
-             
+
              // Check if file exists and increment name
              let mut counter = 2;
              while p.exists() {
@@ -623,7 +631,12 @@ impl App {
              }
              p
         };
-        
+
+        // Ensure .md extension for new files (unless it's .newt for backward compat)
+        if filename.is_some() && !path.extension().map_or(false, |ext| ext == "md" || ext == "newt") {
+            path.set_extension("md");
+        }
+
         if let Some(parent) = path.parent() {
             fs::create_dir_all(parent)?;
         }
@@ -856,6 +869,210 @@ fn get_app_dir() -> PathBuf {
     }
 }
 
+/// Detect the terminal prompt pattern from the file content
+fn detect_terminal_prompt(content: &str) -> Option<String> {
+    let lines: Vec<&str> = content.lines().collect();
+    if lines.is_empty() {
+        return None;
+    }
+
+    // Filter out empty lines
+    let non_empty_lines: Vec<&str> = lines.iter()
+        .filter(|l| !l.trim().is_empty())
+        .copied()
+        .collect();
+
+    if non_empty_lines.is_empty() {
+        return None;
+    }
+
+    let first_line = non_empty_lines[0];
+
+    // Common prompt endings for different shells
+    let prompt_chars = vec!['%', '$', '#', '>'];
+
+    // For macOS/Unix terminals, look for patterns like:
+    // username@hostname directory %
+    // username@hostname directory $
+    for &prompt_char in &prompt_chars {
+        // Find the prompt character followed by a space
+        let pattern = format!("{} ", prompt_char);
+        if let Some(pos) = first_line.find(&pattern) {
+            // Extract everything up to and including the prompt character and space
+            let full_prompt = &first_line[..pos + 2];
+
+            // For prompts like "username@hostname directory % ", we need to extract
+            // the username part and prompt char, since directory changes
+            // Look for username@hostname pattern
+            if let Some(at_pos) = full_prompt.find('@') {
+                let username = &full_prompt[..at_pos];
+
+                // Check if this pattern (username + @ + prompt_char) appears in multiple lines
+                let matches = non_empty_lines.iter()
+                    .filter(|line| {
+                        line.starts_with(username) &&
+                        line.contains('@') &&
+                        line.contains(prompt_char)
+                    })
+                    .count();
+
+                if matches >= 2 {
+                    // Return just the username@ part as a prefix pattern
+                    // We'll match any line starting with this
+                    return Some(username.to_string());
+                }
+            }
+
+            // Fallback: check if the exact prompt appears multiple times
+            let matches = non_empty_lines.iter()
+                .filter(|line| line.starts_with(full_prompt))
+                .count();
+
+            if matches >= 2 {
+                return Some(full_prompt.to_string());
+            }
+        }
+    }
+
+    None
+}
+
+/// Check if a line is a prompt line and extract the command
+fn extract_command<'a>(line: &'a str, prompt: &str) -> Option<&'a str> {
+    // For username-only patterns (e.g., "rohanadwankar")
+    if !prompt.contains('@') && !prompt.contains(' ') {
+        // Look for pattern: username@...promptchar command
+        if line.starts_with(prompt) && line.contains('@') {
+            // Find the prompt character (%, $, #, >)
+            for prompt_char in &['%', '$', '#', '>'] {
+                if let Some(pos) = line.find(&format!("{} ", prompt_char)) {
+                    // Return the command part after "promptchar "
+                    return Some(&line[pos + 2..]);
+                }
+            }
+        }
+    } else {
+        // For full prompt patterns, use exact match
+        if line.starts_with(prompt) {
+            return Some(&line[prompt.len()..]);
+        }
+    }
+    None
+}
+
+/// Convert terminal output to newt markdown cells
+fn convert_terminal_to_markdown(content: &str, prompt: &str) -> String {
+    let mut markdown = String::new();
+    let lines: Vec<&str> = content.lines().collect();
+
+    let mut i = 0;
+    while i < lines.len() {
+        let line = lines[i];
+
+        if let Some(command) = extract_command(line, prompt) {
+            let command = command.trim();
+
+            if !command.is_empty() {
+                markdown.push_str(&format!("```sh\n{}\n```\n", command));
+
+                // Collect output until the next prompt or end of file
+                let mut output_lines = Vec::new();
+                i += 1;
+
+                while i < lines.len() && extract_command(lines[i], prompt).is_none() {
+                    output_lines.push(lines[i]);
+                    i += 1;
+                }
+
+                // Join output lines, trimming trailing empty lines
+                while let Some(last) = output_lines.last() {
+                    if last.trim().is_empty() {
+                        output_lines.pop();
+                    } else {
+                        break;
+                    }
+                }
+
+                if !output_lines.is_empty() {
+                    // Use >> syntax for output
+                    for output_line in output_lines {
+                        markdown.push_str(&format!(">> {}\n", output_line));
+                    }
+                    markdown.push('\n');
+                } else {
+                    markdown.push('\n');
+                }
+
+                continue;
+            }
+        }
+
+        i += 1;
+    }
+
+    markdown
+}
+
+/// Process terminal file: detect prompt, confirm with user, convert to markdown
+fn process_terminal_file(file_path: &str, quiet: bool) -> Result<String, Box<dyn Error>> {
+    use std::io::Write;
+
+    // Read the terminal output file
+    let content = fs::read_to_string(file_path)?;
+
+    // Detect the terminal prompt
+    let detected_prompt = detect_terminal_prompt(&content);
+
+    let prompt = if quiet {
+        // In quiet mode, use detected prompt or fail
+        detected_prompt.ok_or("Could not detect terminal prompt. Please run without --quiet to specify manually.")?
+    } else {
+        // Ask user for confirmation
+        if let Some(detected) = detected_prompt {
+            print!("Detected terminal prompt: '{}'\nIs this correct? (press Enter to confirm, or type the correct prompt): ", detected);
+            std::io::stdout().flush()?;
+
+            let mut input = String::new();
+            std::io::stdin().read_line(&mut input)?;
+            let input = input.trim();
+
+            if input.is_empty() {
+                detected
+            } else {
+                input.to_string()
+            }
+        } else {
+            print!("Could not detect terminal prompt. Please enter the prompt string: ");
+            std::io::stdout().flush()?;
+
+            let mut input = String::new();
+            std::io::stdin().read_line(&mut input)?;
+            let input = input.trim().to_string();
+
+            if input.is_empty() {
+                return Err("No prompt provided".into());
+            }
+
+            input
+        }
+    };
+
+    // Convert to markdown
+    let markdown = convert_terminal_to_markdown(&content, &prompt);
+
+    // Create output filename (replace .txt with .md, or append .md)
+    let output_path = if file_path.ends_with(".txt") {
+        file_path.replace(".txt", ".md")
+    } else {
+        format!("{}.md", file_path)
+    };
+
+    // Write the markdown file
+    fs::write(&output_path, markdown)?;
+
+    Ok(output_path)
+}
+
 #[tokio::main]
 pub async fn run() -> Result<(), Box<dyn Error>> {
     let args = Args::parse();
@@ -865,6 +1082,30 @@ pub async fn run() -> Result<(), Box<dyn Error>> {
         server::run_server().await;
         return Ok(());
     }
+
+    // Handle --term flag for converting terminal output
+    if let Some(term_file) = args.term {
+        let output_path = process_terminal_file(&term_file, args.quiet)?;
+        println!("Terminal output converted to: {}", output_path);
+
+        // Continue to open the generated markdown file in the editor
+        // by overriding the file_path argument
+        let args = Args {
+            file_path: Some(output_path),
+            open: None,
+            serve: false,
+            term: None,
+            quiet: args.quiet,
+        };
+
+        // Continue with normal flow below using the modified args
+        return run_with_args(args).await;
+    }
+
+    run_with_args(args).await
+}
+
+async fn run_with_args(args: Args) -> Result<(), Box<dyn Error>> {
 
     // Check if server is running
     let client = reqwest::Client::new();
@@ -1899,11 +2140,13 @@ async fn run_app<B: Backend + std::io::Write>(terminal: &mut Terminal<B>, app: &
                     InputMode::Command => match key.code {
                         KeyCode::Enter => {
                             let cmd = app.command_input.clone();
-                            if cmd.starts_with("w ") {
-                                let mut filename = cmd[2..].trim().to_string();
+                            if cmd.starts_with("ww ") {
+                                // :ww filename - save to app directory
+                                let mut filename = cmd[3..].trim().to_string();
                                 if !filename.is_empty() {
-                                    if !filename.ends_with(".newt") {
-                                        filename.push_str(".newt");
+                                    // Always use .md extension
+                                    if !filename.ends_with(".md") && !filename.ends_with(".newt") {
+                                        filename.push_str(".md");
                                     }
                                     let p = PathBuf::from(&filename);
                                     let path = if p.is_absolute() {
@@ -1917,9 +2160,41 @@ async fn run_app<B: Backend + std::io::Write>(terminal: &mut Terminal<B>, app: &
                                         app.input_mode = InputMode::ConfirmOverwrite;
                                         app.command_input = format!("Overwrite {}? y/N: ", path.display());
                                     } else {
+                                        let path_str = path.to_string_lossy().to_string();
+                                        app.save_notebook(Some(&path_str))?;
+                                        app.status_message = Some(format!("Saved to {}", path.display()));
+                                        app.input_mode = InputMode::Normal;
+                                        app.refresh_file_list();
+                                        app.command_input.clear();
+                                    }
+                                } else {
+                                    app.input_mode = InputMode::Normal;
+                                    app.command_input.clear();
+                                }
+                            } else if cmd.starts_with("w ") {
+                                // :w filename - save to current directory
+                                let mut filename = cmd[2..].trim().to_string();
+                                if !filename.is_empty() {
+                                    // Always use .md extension
+                                    if !filename.ends_with(".md") && !filename.ends_with(".newt") {
+                                        filename.push_str(".md");
+                                    }
+                                    let p = PathBuf::from(&filename);
+                                    let path = if p.is_absolute() {
+                                        p
+                                    } else {
+                                        std::env::current_dir()?.join(&filename)
+                                    };
+
+                                    if path.exists() {
+                                        app.overwrite_path = Some(path.clone());
+                                        app.input_mode = InputMode::ConfirmOverwrite;
+                                        app.command_input = format!("Overwrite {}? y/N: ", path.display());
+                                    } else {
                                         // Pass the full path string to save_notebook
                                         let path_str = path.to_string_lossy().to_string();
                                         app.save_notebook(Some(&path_str))?;
+                                        app.status_message = Some(format!("Saved to {}", path.display()));
                                         app.input_mode = InputMode::Normal;
                                         app.refresh_file_list();
                                         app.command_input.clear();

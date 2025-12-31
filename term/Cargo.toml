@@ -20,6 +20,7 @@ tokio = { version = "1.48.0", features = ["full"] }
 uuid = { version = "1.18.1", features = ["v4"] }
 clap = { version = "4.5", features = ["derive"] }
 directories = "6.0.0"
+dirs = "5.0"
 open = "5.3.3"
 arboard = "3.6.1"
 axum = "0.8.7"
