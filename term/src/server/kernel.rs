@@ -562,10 +562,11 @@ impl RustKernel {
         let mut items = Vec::new();
         let mut stmts = Vec::new();
         let mut has_user_main = false;
-        
-        for block in history {
+
+        for (idx, block) in history.iter().enumerate() {
+            let is_last = idx == history.len() - 1;
             let mut content = block.trim();
-            
+
             // Extract leading 'use' statements to handle mixed blocks like "use std::io; let x = ..."
             while content.starts_with("use ") {
                 if let Some(end) = content.find(';') {
@@ -576,7 +577,7 @@ impl RustKernel {
                     break;
                 }
             }
-            
+
             if content.is_empty() {
                 continue;
             }
@@ -587,7 +588,11 @@ impl RustKernel {
                 }
                 items.push(content);
             } else {
-                stmts.push(content);
+                // Only include statements from the CURRENT cell (last cell in history)
+                // This prevents re-execution of previous cells' code
+                if is_last {
+                    stmts.push(content);
+                }
             }
         }
         

@@ -46,6 +46,7 @@ async fn test_echo_command() {
                     language: None,
                     context: None,
                     client_type: None,
+                    notebook_path: None,
                 }).unwrap()))
                 .unwrap(),
         )
@@ -75,6 +76,7 @@ async fn test_cargo_version() {
                     language: None,
                     context: None,
                     client_type: None,
+                    notebook_path: None,
                 }).unwrap()))
                 .unwrap(),
         )
@@ -107,6 +109,7 @@ async fn test_state_persistence_fail() {
                     language: None,
                     context: None,
                     client_type: None,
+                    notebook_path: None,
                 }).unwrap()))
                 .unwrap(),
         )
@@ -125,6 +128,7 @@ async fn test_state_persistence_fail() {
                     language: None,
                     context: None,
                     client_type: None,
+                    notebook_path: None,
                 }).unwrap()))
                 .unwrap(),
         )
@@ -155,6 +159,7 @@ async fn test_quoted_arguments_fail() {
                     language: None,
                     context: None,
                     client_type: None,
+                    notebook_path: None,
                 }).unwrap()))
                 .unwrap(),
         )
@@ -191,6 +196,7 @@ async fn test_rust_snippet_execution() {
                     language: Some("rust".to_string()),
                     context: None,
                     client_type: None,
+                    notebook_path: None,
                 }).unwrap()))
                 .unwrap(),
         )
@@ -222,6 +228,7 @@ async fn test_python_statefulness() {
                     language: Some("python".to_string()),
                     context: None,
                     client_type: None,
+                    notebook_path: None,
                 }).unwrap()))
                 .unwrap(),
         )
@@ -241,6 +248,7 @@ async fn test_python_statefulness() {
                     language: Some("python".to_string()),
                     context: None,
                     client_type: None,
+                    notebook_path: None,
                 }).unwrap()))
                 .unwrap(),
         )
@@ -275,6 +283,7 @@ async fn test_rust_statefulness() {
                     language: Some("rust".to_string()),
                     context: Some(vec!["let x = 100;".to_string()]),
                     client_type: None,
+                    notebook_path: None,
                 }).unwrap()))
                 .unwrap(),
         )
@@ -309,6 +318,7 @@ async fn test_c_statefulness() {
                     language: Some("c".to_string()),
                     context: Some(vec!["#include <stdio.h>\nint x = 55;".to_string()]),
                     client_type: None,
+                    notebook_path: None,
                 }).unwrap()))
                 .unwrap(),
         )
@@ -340,6 +350,7 @@ async fn test_rust_mixed_context() {
                     language: Some("rust".to_string()),
                     context: Some(vec!["fn main() { println!(\"Hello, world!\"); }".to_string()]),
                     client_type: None,
+                    notebook_path: None,
                 }).unwrap()))
                 .unwrap(),
         )
@@ -362,6 +373,7 @@ async fn test_rust_mixed_context() {
                     language: Some("rust".to_string()),
                     context: Some(vec!["println!(\"prev\");".to_string()]),
                     client_type: None,
+                    notebook_path: None,
                 }).unwrap()))
                 .unwrap(),
         )
@@ -391,6 +403,7 @@ async fn test_rust_comment_main() {
                     language: Some("rust".to_string()),
                     context: Some(vec!["// fn main".to_string()]),
                     client_type: None,
+                    notebook_path: None,
                 }).unwrap()))
                 .unwrap(),
         )
@@ -423,6 +436,7 @@ plt.show()
                     language: Some("python".to_string()),
                     context: None,
                     client_type: None,
+                    notebook_path: None,
                 }).unwrap()))
                 .unwrap(),
         )
@@ -485,6 +499,7 @@ display(MyJSON())
                     language: Some("python".to_string()),
                     context: None,
                     client_type: None,
+                    notebook_path: None,
                 }).unwrap()))
                 .unwrap(),
         )
