@@ -9,6 +9,7 @@ import { v4 as uuidv4 } from 'uuid';
 import { createKernel, ExecutionMode } from '../lib/kernels';
 import { arrayMove } from '@dnd-kit/sortable';
 import { parseMarkdown, toMarkdown } from '../lib/markdown';
+import { encodeNotebook, decodeNotebook, getSlugFromLocation } from '../lib/urlState';
 
 const API_URL = 'http://127.0.0.1:3030';
 
@@ -277,6 +278,22 @@ export default function App() {
     fetchFiles();
     fetchConfig();
   }, [fetchFiles, fetchConfig]);
+
+  // Hydrate notebook from URL if present
+  useEffect(() => {
+    const slug = getSlugFromLocation();
+    if (slug) {
+      decodeNotebook(slug)
+        .then(decodedCells => {
+          setCells(decodedCells);
+          setStatusMessage("Loaded notebook from URL");
+        })
+        .catch(err => {
+          console.error("Failed to load notebook from URL:", err);
+          setStatusMessage("Failed to load notebook from URL");
+        });
+    }
+  }, []);
 
   // Refetch files when expandedDirs changes
   useEffect(() => {
@@ -585,6 +602,22 @@ export default function App() {
     a.click();
     URL.revokeObjectURL(url);
     setStatusMessage("Exported to Markdown");
+  };
+
+  const shareAsURL = async () => {
+    try {
+      const slug = await encodeNotebook(cells);
+      const baseUrl = window.location.origin + window.location.pathname;
+      const shareUrl = `${baseUrl}#n=${slug}`;
+
+      // Copy to clipboard
+      await navigator.clipboard.writeText(shareUrl);
+
+      setStatusMessage("Notebook URL copied to clipboard!");
+    } catch (err) {
+      console.error("Failed to share as URL:", err);
+      setStatusMessage("Failed to create share URL");
+    }
   };
 
   const executeCommand = async (cmd: string) => {
@@ -1170,6 +1203,7 @@ export default function App() {
         onSave={saveNotebook}
         onNewFile={newFile}
         onShare={exportNotebook}
+        onShareURL={shareAsURL}
         onNewCell={() => addCell(primaryIndex + 1)}
         onCut={() => { copyCells(); deleteCells(); }}
         onCopy={copyCells}
