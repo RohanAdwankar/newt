@@ -2,7 +2,7 @@ use newts::server::kernel::{PythonKernel, NodeKernel, RustKernel, CKernel, CppKe
 
 #[test]
 fn test_python_kernel_persistence() {
-    let mut kernel = PythonKernel::new().expect("Failed to init kernel");
+    let mut kernel = PythonKernel::new(None).expect("Failed to init kernel");
 
     // 1. Set a variable
     let resp1 = kernel.execute("x = 42".to_string(), None, None, None).expect("Exec failed");
@@ -46,14 +46,14 @@ fn test_rust_kernel_persistence() {
 
 #[test]
 fn test_python_kernel_isolation() {
-    let mut kernel = PythonKernel::new().expect("Failed to init kernel");
+    let mut kernel = PythonKernel::new(None).expect("Failed to init kernel");
 
     // 1. Set variable
     let resp1 = kernel.execute("x = 100".to_string(), None, None, None).expect("Exec failed");
     assert_eq!(resp1.status, Some(0));
 
     // 2. Restart kernel (simulate isolation by creating new one)
-    let mut kernel2 = PythonKernel::new().expect("Failed to init kernel");
+    let mut kernel2 = PythonKernel::new(None).expect("Failed to init kernel");
     
     // 3. Check variable (should fail)
     let resp2 = kernel2.execute("print(x)".to_string(), None, None, None).expect("Exec failed");
@@ -145,7 +145,7 @@ fn test_typescript_kernel_persistence() {
 
 #[test]
 fn test_python_performance_persistence() {
-    let mut kernel = PythonKernel::new().expect("Failed to init kernel");
+    let mut kernel = PythonKernel::new(None).expect("Failed to init kernel");
 
     // 1. Real Work: Create a large list (5 million items)
     // This forces actual CPU usage and Memory allocation (~40MB+ in Python)
@@ -204,12 +204,44 @@ fn test_node_performance_persistence() {
 
 #[test]
 fn test_python_input_override() {
-    let mut kernel = PythonKernel::new().expect("Failed to init kernel");
-    
+    let mut kernel = PythonKernel::new(None).expect("Failed to init kernel");
+
     // Check if input is overridden
     let code = "import builtins; print(builtins.input.__name__)".to_string();
     let resp = kernel.execute(code, None, None, None).expect("Exec failed");
-    
+
     assert_eq!(resp.status, Some(0));
     assert_eq!(resp.stdout.trim(), "_newt_input");
+}
+
+#[test]
+fn test_rust_kernel_no_output_accumulation() {
+    let mut kernel = RustKernel::new();
+
+    // 1. First cell with print statement
+    let code1 = r#"
+let s = String::from("hello");
+let r1 = &s;
+let r2 = &s;
+println!("{} and {}", r1, r2);
+"#.to_string();
+
+    let resp1 = kernel.execute(code1.clone(), None, None, None).expect("Exec failed");
+    assert_eq!(resp1.status, Some(0));
+    assert_eq!(resp1.stdout.trim(), "hello and hello");
+
+    // 2. Second cell with different print statement
+    // Should only output "hello, world", NOT "hello and hello" + "hello, world"
+    let code2 = r#"
+let mut s = String::from("hello");
+let r1 = &mut s;
+r1.push_str(", world");
+println!("{}", r1);
+"#.to_string();
+
+    let resp2 = kernel.execute(code2, None, Some(vec![code1]), None).expect("Exec failed");
+    assert_eq!(resp2.status, Some(0));
+    // The bug would cause this to be "hello and hello\nhello, world"
+    // After the fix, it should only be "hello, world"
+    assert_eq!(resp2.stdout.trim(), "hello, world");
 }

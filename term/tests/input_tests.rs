@@ -28,7 +28,7 @@ fn simulate_input(input_str: &str) {
 #[test]
 fn test_python_input() {
     unsafe { std::env::set_var("NEWT_TEST_MODE", "1"); }
-    let mut kernel = PythonKernel::new().expect("Failed to init kernel");
+    let mut kernel = PythonKernel::new(None).expect("Failed to init kernel");
     
     let code = "x = input('Enter: '); print(f'Got: {x}')".to_string();
     

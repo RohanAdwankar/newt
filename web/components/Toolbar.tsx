@@ -1,10 +1,11 @@
 import React from 'react';
-import { Save, Plus, Scissors, Copy, Clipboard, Play, Square, RotateCw, Layers, Settings, Folder, Moon, Sun, Keyboard, Timer, Share, Maximize2, Minimize2, Search, FileText } from 'lucide-react';
+import { Save, Plus, Scissors, Copy, Clipboard, Play, Square, RotateCw, Layers, Settings, Folder, Moon, Sun, Keyboard, Timer, Share, Link, Maximize2, Minimize2, Search, FileText } from 'lucide-react';
 
 interface ToolbarProps {
   onSave: () => void;
   onNewFile: () => void;
   onShare: () => void;
+  onShareURL: () => void;
   onNewCell: () => void;
   onCut: () => void;
   onCopy: () => void;
@@ -32,6 +33,7 @@ export const Toolbar: React.FC<ToolbarProps> = ({
   onSave,
   onNewFile,
   onShare,
+  onShareURL,
   onNewCell,
   onCut,
   onCopy,
@@ -70,6 +72,9 @@ export const Toolbar: React.FC<ToolbarProps> = ({
       </button>
       <button onClick={onShare} className={btnClass} title="Export to Markdown">
         <Share size={18} />
+      </button>
+      <button onClick={onShareURL} className={btnClass} title="Share as URL">
+        <Link size={18} />
       </button>
       {onSearch && (
         <button onClick={onSearch} className={btnClass} title="Search (Ctrl+F)">
