@@ -24,9 +24,9 @@ The GUI is a static site which allows you to run supported languages in the brow
 ### Client Side Mode
 The goal of client side mode is to run code directly in the browser using WASM without sending anything to external servers. It currently supports python, c++, and javascript/typescript. It also supports storing files and preferences in localstorage in your browser.
 To use the static site go to:
-
-https://rohanadwankar.github.io/newt/
-
+```bash
+open https://rohanadwankar.github.io/newt/
+```
 ### Server Side Mode
 The goal of server side mode is for users who would like to use the GUI but need the features of the local server (eg. full language support, local file system).
 To install the server via cargo:
@@ -60,6 +60,7 @@ You can also pass the editor program directly such as `:editor ~/nvim-macos-arm6
 | newts file-path | Opens file at file-path. |
 | newts --serve | Starts the newt server allowing the GUI to work in server mode. |
 | newts --term file-path | Converts the terminal output from saving a terminal session to a file into markdown. |
+| newts run <file> <heading> | Runs the codeblocks in a file or under a markdown heading. |
 
 ## Keybindings & Actions
 

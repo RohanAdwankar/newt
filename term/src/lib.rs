@@ -81,6 +81,8 @@ impl SearchState {
     }
 }
 
+use clap::Subcommand;
+
 #[derive(Parser, Debug)]
 #[command(author, version, about, long_about = None)]
 struct Args {
@@ -102,6 +104,20 @@ struct Args {
     /// Skip confirmation prompt when using --term
     #[arg(long)]
     quiet: bool,
+
+    #[command(subcommand)]
+    command: Option<Commands>,
+}
+
+#[derive(Subcommand, Debug)]
+enum Commands {
+    /// Run a markdown file (optionally specify a heading to run only those cells)
+    Run {
+        /// Path to the markdown file
+        file: String,
+        /// Optional heading to filter cells
+        heading: Option<String>,
+    },
 }
 
 #[derive(Serialize, Deserialize, Debug)]
@@ -1073,9 +1089,149 @@ fn process_terminal_file(file_path: &str, quiet: bool) -> Result<String, Box<dyn
     Ok(output_path)
 }
 
+/// Run a markdown file (optionally filtering by heading)
+async fn run_markdown_file(file_path: &str, heading: Option<&str>) -> Result<(), Box<dyn Error>> {
+    // Read the markdown file
+    let content = fs::read_to_string(file_path)?;
+
+    // Parse cells from markdown
+    let all_cells = markdown::parse_markdown(&content);
+
+    // Filter cells by heading if specified
+    let cells_to_run: Vec<Cell> = if let Some(target_heading) = heading {
+        let mut filtered_cells = Vec::new();
+        let mut in_target_section = false;
+        let mut target_level: Option<usize> = None;
+
+        for cell in all_cells {
+            if cell.cell_type == CellType::Markdown {
+                // Check if this markdown cell contains any headings
+                for line in cell.content.lines() {
+                    let trimmed = line.trim();
+                    if trimmed.starts_with('#') {
+                        // Parse heading level and text
+                        let hash_count = trimmed.chars().take_while(|&c| c == '#').count();
+                        let heading_text = trimmed[hash_count..].trim();
+
+                        // Check if this is our target heading
+                        if heading_text.eq_ignore_ascii_case(target_heading) {
+                            in_target_section = true;
+                            target_level = Some(hash_count);
+                        } else if in_target_section {
+                            // Check if we've reached a heading of the same or higher level
+                            if let Some(target_lvl) = target_level {
+                                if hash_count <= target_lvl {
+                                    // End of target section
+                                    in_target_section = false;
+                                }
+                            }
+                        }
+                    }
+                }
+            } else if in_target_section {
+                // Add code cells within the target section
+                filtered_cells.push(cell);
+            }
+        }
+
+        if filtered_cells.is_empty() && heading.is_some() {
+            eprintln!("Warning: No code blocks found under heading '{}'", target_heading);
+        }
+
+        filtered_cells
+    } else {
+        // Run all code cells
+        all_cells.into_iter().filter(|c| c.cell_type != CellType::Markdown).collect()
+    };
+
+    if cells_to_run.is_empty() {
+        println!("No code cells to execute.");
+        return Ok(());
+    }
+
+    // Start server if not running
+    let client = reqwest::Client::new();
+    let server_running = client.get("http://127.0.0.1:3030").send().await.is_ok();
+
+    if !server_running {
+        // Start server in background
+        tokio::spawn(async {
+            server::run_server().await;
+        });
+
+        // Wait for server to start
+        let mut retries = 0;
+        while retries < 50 {
+            if client.get("http://127.0.0.1:3030").send().await.is_ok() {
+                break;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+            retries += 1;
+        }
+    }
+
+    for (i, cell) in cells_to_run.iter().enumerate() {
+        let lang = match cell.cell_type {
+            CellType::Rust => Some("rust".to_string()),
+            CellType::Python => Some("python".to_string()),
+            CellType::JavaScript => Some("javascript".to_string()),
+            CellType::TypeScript => Some("typescript".to_string()),
+            CellType::C => Some("c".to_string()),
+            CellType::Cpp => Some("cpp".to_string()),
+            CellType::Go => Some("go".to_string()),
+            CellType::Shell => None,
+            CellType::Markdown => continue,
+        };
+
+        let req = CommandRequest {
+            command: cell.content.clone(),
+            language: lang,
+            context: None,
+            client_type: Some("cli".to_string()),
+            notebook_path: Some(file_path.to_string()),
+        };
+
+        println!("Running Cell {}/{} ({:?})", i + 1, cells_to_run.len(), cell.cell_type);
+
+        let res = client.post("http://127.0.0.1:3030/exec")
+            .json(&req)
+            .send()
+            .await;
+
+        match res {
+            Ok(resp) => {
+                if let Ok(body) = resp.json::<CommandResponse>().await {
+                    if !body.stdout.is_empty() {
+                        print!("{}", body.stdout);
+                    }
+                    if !body.stderr.is_empty() {
+                        eprint!("{}", body.stderr);
+                    }
+                } else {
+                    eprintln!("Error parsing response");
+                }
+            }
+            Err(e) => {
+                eprintln!("Error executing cell: {}", e);
+            }
+        }
+    }
+
+    Ok(())
+}
+
 #[tokio::main]
 pub async fn run() -> Result<(), Box<dyn Error>> {
     let args = Args::parse();
+
+    // Handle subcommands
+    if let Some(command) = args.command {
+        match command {
+            Commands::Run { file, heading } => {
+                return run_markdown_file(&file, heading.as_deref()).await;
+            }
+        }
+    }
 
     if args.serve {
         println!("Starting server on http://127.0.0.1:3030");
@@ -1096,6 +1252,7 @@ pub async fn run() -> Result<(), Box<dyn Error>> {
             serve: false,
             term: None,
             quiet: args.quiet,
+            command: None,
         };
 
         // Continue with normal flow below using the modified args
