@@ -9,7 +9,9 @@ use directories::ProjectDirs;
 use ignore::gitignore::Gitignore;
 use serde::{Deserialize, Serialize};
 use std::fs;
+use std::io::{BufRead, BufReader, Write};
 use std::path::PathBuf;
+use std::process::{Child, ChildStdin, ChildStdout, Command, Stdio};
 use std::sync::Mutex;
 use lazy_static::lazy_static;
 
@@ -18,9 +20,99 @@ use tower_http::cors::{CorsLayer, Any};
 
 use crate::{CommandRequest, CommandResponse, CellType, Notebook, ExportResponse};
 
-// Global working directory state for shell commands
+struct ShellSession {
+    _child: Child,
+    stdin: ChildStdin,
+    stdout: BufReader<ChildStdout>,
+    marker_counter: u64,
+}
+
+impl ShellSession {
+    fn new() -> Result<Self, String> {
+        let shell = std::env::var("SHELL").unwrap_or_else(|_| "/bin/bash".to_string());
+
+        let mut child = Command::new(&shell)
+            .arg("-l")
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::null())
+            .spawn()
+            .map_err(|e| format!("Failed to start shell '{}': {}", shell, e))?;
+
+        let stdin = child
+            .stdin
+            .take()
+            .ok_or_else(|| "Failed to capture shell stdin".to_string())?;
+        let stdout = child
+            .stdout
+            .take()
+            .ok_or_else(|| "Failed to capture shell stdout".to_string())?;
+
+        let mut session = Self {
+            _child: child,
+            stdin,
+            stdout: BufReader::new(stdout),
+            marker_counter: 0,
+        };
+
+        session
+            .stdin
+            .write_all(b"exec 2>&1\n")
+            .map_err(|e| format!("Failed to configure shell stderr redirection: {}", e))?;
+        session
+            .stdin
+            .flush()
+            .map_err(|e| format!("Failed to flush shell init command: {}", e))?;
+
+        Ok(session)
+    }
+
+    fn run_command(&mut self, command: &str) -> Result<(String, i32), String> {
+        self.marker_counter = self.marker_counter.wrapping_add(1);
+        let marker = format!("__NEWT_STATUS_MARKER_{}__", self.marker_counter);
+
+        self.stdin
+            .write_all(command.as_bytes())
+            .map_err(|e| format!("Failed writing command to shell: {}", e))?;
+        self.stdin
+            .write_all(b"\n")
+            .map_err(|e| format!("Failed writing command newline to shell: {}", e))?;
+
+        let marker_cmd = format!("printf '\n{}%s\n' \"$?\"\n", marker);
+        self.stdin
+            .write_all(marker_cmd.as_bytes())
+            .map_err(|e| format!("Failed writing status marker command: {}", e))?;
+        self.stdin
+            .flush()
+            .map_err(|e| format!("Failed flushing shell input: {}", e))?;
+
+        let mut output = String::new();
+        let mut line = String::new();
+
+        loop {
+            line.clear();
+            let bytes_read = self
+                .stdout
+                .read_line(&mut line)
+                .map_err(|e| format!("Failed reading shell output: {}", e))?;
+
+            if bytes_read == 0 {
+                return Err("Shell session closed unexpectedly".to_string());
+            }
+
+            let trimmed = line.trim_end_matches(['\r', '\n']);
+            if let Some(status_str) = trimmed.strip_prefix(&marker) {
+                let status = status_str.trim().parse::<i32>().unwrap_or(1);
+                return Ok((output, status));
+            }
+
+            output.push_str(&line);
+        }
+    }
+}
+
 lazy_static! {
-    static ref SHELL_WORKING_DIR: Mutex<Option<PathBuf>> = Mutex::new(None);
+    static ref SHELL_SESSION: Mutex<Option<ShellSession>> = Mutex::new(None);
 }
 
 #[derive(Serialize, Deserialize)]
@@ -110,107 +202,92 @@ pub async fn export_notebook(Json(notebook): Json<Notebook>) -> Json<ExportRespo
 }
 
 async fn execute_shell(command: String) -> Json<CommandResponse> {
-    let parts: Vec<&str> = command.split_whitespace().collect();
-    if parts.is_empty() {
+    if command.trim().is_empty() {
         return Json(CommandResponse {
             stdout: "".to_string(),
-            stderr: "Empty command".to_string(),
-            status: None,
+            stderr: "".to_string(),
+            status: Some(0),
             display_data: None,
         });
     }
 
-    let program = parts[0];
-
-    // Handle cd command specially
-    if program == "cd" {
-        let target_dir_str = if parts.len() > 1 {
-            parts[1].to_string()
-        } else {
-            // cd with no arguments goes to home directory
-            "~".to_string()
-        };
-
-        // Resolve the target directory
-        let mut working_dir = SHELL_WORKING_DIR.lock().unwrap();
-        let current_dir = working_dir.as_ref()
-            .cloned()
-            .or_else(|| std::env::current_dir().ok())
-            .unwrap_or_else(|| PathBuf::from("."));
-
-        let new_dir = if target_dir_str.starts_with('/') {
-            PathBuf::from(&target_dir_str)
-        } else if target_dir_str == "~" {
-            dirs::home_dir().unwrap_or_else(|| PathBuf::from("."))
-        } else if target_dir_str.starts_with("~/") {
-            let home = dirs::home_dir().unwrap_or_else(|| PathBuf::from("."));
-            home.join(&target_dir_str[2..])
-        } else {
-            current_dir.join(&target_dir_str)
-        };
-
-        // Canonicalize and check if directory exists
-        match new_dir.canonicalize() {
-            Ok(canonical_dir) => {
-                if canonical_dir.is_dir() {
-                    *working_dir = Some(canonical_dir.clone());
-                    return Json(CommandResponse {
-                        stdout: "".to_string(),
-                        stderr: "".to_string(),
-                        status: Some(0),
-                        display_data: None,
-                    });
-                } else {
-                    return Json(CommandResponse {
-                        stdout: "".to_string(),
-                        stderr: format!("cd: not a directory: {}", target_dir_str),
-                        status: Some(1),
-                        display_data: None,
-                    });
-                }
-            }
+    tokio::task::spawn_blocking(move || {
+        let mut shell_guard = match SHELL_SESSION.lock() {
+            Ok(guard) => guard,
             Err(_) => {
                 return Json(CommandResponse {
                     stdout: "".to_string(),
-                    stderr: format!("cd: no such file or directory: {}", target_dir_str),
+                    stderr: "Failed to lock shell session mutex".to_string(),
                     status: Some(1),
                     display_data: None,
-                });
+                })
+            }
+        };
+
+        if shell_guard.is_none() {
+            match ShellSession::new() {
+                Ok(session) => *shell_guard = Some(session),
+                Err(e) => {
+                    return Json(CommandResponse {
+                        stdout: "".to_string(),
+                        stderr: e,
+                        status: Some(1),
+                        display_data: None,
+                    })
+                }
             }
         }
-    }
 
-    // For other commands, execute in the current working directory
-    let current_dir = {
-        let working_dir = SHELL_WORKING_DIR.lock().unwrap();
-        working_dir.as_ref()
-            .cloned()
-            .or_else(|| std::env::current_dir().ok())
-            .unwrap_or_else(|| PathBuf::from("."))
-    }; // MutexGuard dropped here
+        let run_result = shell_guard
+            .as_mut()
+            .unwrap()
+            .run_command(&command);
 
-    let args: Vec<String> = parts[1..].iter().map(|s| s.to_string()).collect();
+        match run_result {
+            Ok((stdout, status)) => Json(CommandResponse {
+                stdout,
+                stderr: "".to_string(),
+                status: Some(status),
+                display_data: None,
+            }),
+            Err(first_error) => {
+                // If session died, try one restart before failing.
+                *shell_guard = None;
+                let retry = ShellSession::new().and_then(|mut session| {
+                    let result = session.run_command(&command);
+                    if result.is_ok() {
+                        *shell_guard = Some(session);
+                    }
+                    result
+                });
 
-    let output = tokio::process::Command::new(program)
-        .args(args)
-        .current_dir(current_dir)
-        .output()
-        .await;
-
-    match output {
-        Ok(output) => Json(CommandResponse {
-            stdout: String::from_utf8_lossy(&output.stdout).to_string(),
-            stderr: String::from_utf8_lossy(&output.stderr).to_string(),
-            status: output.status.code(),
-            display_data: None,
-        }),
-        Err(e) => Json(CommandResponse {
-            stdout: "".to_string(),
-            stderr: e.to_string(),
-            status: None,
-            display_data: None,
-        }),
-    }
+                match retry {
+                    Ok((stdout, status)) => Json(CommandResponse {
+                        stdout,
+                        stderr: "".to_string(),
+                        status: Some(status),
+                        display_data: None,
+                    }),
+                    Err(second_error) => Json(CommandResponse {
+                        stdout: "".to_string(),
+                        stderr: format!(
+                            "Shell session error: {}. Retry failed: {}",
+                            first_error, second_error
+                        ),
+                        status: Some(1),
+                        display_data: None,
+                    }),
+                }
+            }
+        }
+    })
+    .await
+    .unwrap_or_else(|e| Json(CommandResponse {
+        stdout: "".to_string(),
+        stderr: format!("Shell task failed: {}", e),
+        status: Some(1),
+        display_data: None,
+    }))
 }
 
 async fn execute_rust(code: String, context: Option<Vec<String>>) -> Json<CommandResponse> {
