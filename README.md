@@ -113,6 +113,8 @@ You can also pass the editor program directly such as `:editor ~/nvim-macos-arm6
 | Change Language | `:rust`, `:py`, `:ts`, `:js`, `:cpp`, `:c` | Toolbar |
 | Set Editor | `:editor <cmd>` | - |
 | Set Accent Color | `:color <index>` | - |
+| Show/Hide Dot Files | `:hidden on|off` | - |
+| Respect `.gitignore` | `:gitignore on|off` | - |
 
 To edit a cell in vim mode in the GUI, first press `i` once to enter the context of the cell, then use the normal vim motions to naviagate the cell, then press `i` again to enter insert mode and make changes, then press `Esc` to exit insert mode, then press `Esc` again to exit the cell context.
 

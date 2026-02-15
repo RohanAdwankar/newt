@@ -6,6 +6,7 @@ use axum::{
     response::Response,
 };
 use directories::ProjectDirs;
+use ignore::gitignore::Gitignore;
 use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::PathBuf;
@@ -640,6 +641,8 @@ pub struct Config {
     pub editor: Option<String>,
     pub display_mode: Option<String>,
     pub colorscheme: Option<String>,
+    pub show_hidden_files: Option<bool>,
+    pub respect_gitignore: Option<bool>,
 }
 
 pub async fn get_config() -> Json<Config> {
@@ -673,6 +676,12 @@ pub async fn update_config(Json(config): Json<Config>) -> Json<String> {
             if final_config.colorscheme.is_none() {
                 final_config.colorscheme = existing.colorscheme;
             }
+            if final_config.show_hidden_files.is_none() {
+                final_config.show_hidden_files = existing.show_hidden_files;
+            }
+            if final_config.respect_gitignore.is_none() {
+                final_config.respect_gitignore = existing.respect_gitignore;
+            }
         }
     }
 
@@ -704,6 +713,16 @@ pub struct ListFilesRequest {
 pub async fn list_files(Json(req): Json<ListFilesRequest>) -> Json<Vec<FileItem>> {
     let mut files = Vec::new();
 
+    let mut config_path = get_app_dir();
+    config_path.push("config.json");
+    let config = if let Ok(content) = fs::read_to_string(&config_path) {
+        serde_json::from_str::<Config>(&content).unwrap_or_default()
+    } else {
+        Config::default()
+    };
+    let show_hidden_files = config.show_hidden_files.unwrap_or(false);
+    let respect_gitignore = config.respect_gitignore.unwrap_or(false);
+
     // Convert expanded directories to a HashSet of PathBufs
     let expanded_dirs: std::collections::HashSet<PathBuf> = req
         .expanded_dirs
@@ -729,7 +748,21 @@ pub async fn list_files(Json(req): Json<ListFilesRequest>) -> Json<Vec<FileItem>
     });
 
     // Build hierarchical tree for local files
-    build_directory_tree(&cwd, 0, false, &mut files, &expanded_dirs);
+    let local_gitignore = if respect_gitignore {
+        Some(Gitignore::new(cwd.join(".gitignore")).0)
+    } else {
+        None
+    };
+    build_directory_tree(
+        &cwd,
+        0,
+        false,
+        &mut files,
+        &expanded_dirs,
+        show_hidden_files,
+        respect_gitignore,
+        local_gitignore.as_ref(),
+    );
 
     // App Files Header
     files.push(FileItem {
@@ -744,7 +777,16 @@ pub async fn list_files(Json(req): Json<ListFilesRequest>) -> Json<Vec<FileItem>
 
     // Build hierarchical tree for app files
     let app_dir = get_app_dir();
-    build_directory_tree(&app_dir, 0, true, &mut files, &expanded_dirs);
+    build_directory_tree(
+        &app_dir,
+        0,
+        true,
+        &mut files,
+        &expanded_dirs,
+        show_hidden_files,
+        false,
+        None,
+    );
 
     Json(files)
 }
@@ -755,6 +797,9 @@ fn build_directory_tree(
     is_app_file: bool,
     files: &mut Vec<FileItem>,
     expanded_dirs: &std::collections::HashSet<PathBuf>,
+    show_hidden_files: bool,
+    respect_gitignore: bool,
+    gitignore: Option<&Gitignore>,
 ) {
     if let Ok(entries) = fs::read_dir(dir) {
         let mut items: Vec<(PathBuf, bool)> = entries
@@ -776,10 +821,22 @@ fn build_directory_tree(
         });
 
         for (path, is_dir) in items {
-            // Skip hidden files/directories
-            if let Some(name) = path.file_name() {
-                if name.to_string_lossy().starts_with('.') {
-                    continue;
+            let file_name = path.file_name().map(|n| n.to_string_lossy().to_string());
+            let is_newt_dir = file_name.as_deref() == Some(".newt");
+
+            if !show_hidden_files && !is_newt_dir {
+                if let Some(name) = &file_name {
+                    if name.starts_with('.') {
+                        continue;
+                    }
+                }
+            }
+
+            if !is_app_file && respect_gitignore && !is_newt_dir {
+                if let Some(matcher) = gitignore {
+                    if matcher.matched_path_or_any_parents(&path, is_dir).is_ignore() {
+                        continue;
+                    }
                 }
             }
 
@@ -805,7 +862,16 @@ fn build_directory_tree(
 
             // Recursively add children if directory is expanded
             if is_dir && is_expanded {
-                build_directory_tree(&path, depth + 1, is_app_file, files, expanded_dirs);
+                build_directory_tree(
+                    &path,
+                    depth + 1,
+                    is_app_file,
+                    files,
+                    expanded_dirs,
+                    show_hidden_files,
+                    respect_gitignore,
+                    gitignore,
+                );
             }
         }
     }
