@@ -720,6 +720,7 @@ pub struct Config {
     pub colorscheme: Option<String>,
     pub show_hidden_files: Option<bool>,
     pub respect_gitignore: Option<bool>,
+    pub savequit: Option<bool>,
 }
 
 pub async fn get_config() -> Json<Config> {
@@ -758,6 +759,9 @@ pub async fn update_config(Json(config): Json<Config>) -> Json<String> {
             }
             if final_config.respect_gitignore.is_none() {
                 final_config.respect_gitignore = existing.respect_gitignore;
+            }
+            if final_config.savequit.is_none() {
+                final_config.savequit = existing.savequit;
             }
         }
     }

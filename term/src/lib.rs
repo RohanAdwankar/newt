@@ -239,6 +239,7 @@ pub struct App {
     pub colorscheme: String,
     pub show_hidden_files: bool,
     pub respect_gitignore: bool,
+    pub savequit: bool,
     pub dirty: bool,
     pub last_file_refresh: std::time::Instant,
     pub numeric_prefix: Option<usize>,
@@ -300,6 +301,7 @@ impl App {
             colorscheme: "pastel".to_string(),
             show_hidden_files: false,
             respect_gitignore: false,
+            savequit: true,
             dirty: false,
             last_file_refresh: std::time::Instant::now(),
             numeric_prefix: None,
@@ -847,6 +849,9 @@ impl App {
                 if let Some(respect_gitignore) = config.respect_gitignore {
                     self.respect_gitignore = respect_gitignore;
                 }
+                if let Some(savequit) = config.savequit {
+                    self.savequit = savequit;
+                }
             }
         }
         // Set accent_color based on colorscheme
@@ -868,6 +873,7 @@ impl App {
         config.colorscheme = Some(self.colorscheme.clone());
         config.show_hidden_files = Some(self.show_hidden_files);
         config.respect_gitignore = Some(self.respect_gitignore);
+        config.savequit = Some(self.savequit);
 
         if let Ok(json) = serde_json::to_string_pretty(&config) {
             let _ = fs::write(path, json);
@@ -2563,6 +2569,25 @@ async fn run_app<B: Backend + std::io::Write>(terminal: &mut Terminal<B>, app: &
                                 }
                                 app.input_mode = InputMode::Normal;
                                 app.command_input.clear();
+                            } else if cmd.starts_with("savequit ") {
+                                let value = cmd[9..].trim();
+                                match value {
+                                    "on" => {
+                                        app.savequit = true;
+                                        app.save_config();
+                                        app.status_message = Some("Save-on-quit enabled".to_string());
+                                    }
+                                    "off" => {
+                                        app.savequit = false;
+                                        app.save_config();
+                                        app.status_message = Some("Save-on-quit disabled".to_string());
+                                    }
+                                    _ => {
+                                        app.status_message = Some("Invalid value. Use ':savequit on' or ':savequit off'".to_string());
+                                    }
+                                }
+                                app.input_mode = InputMode::Normal;
+                                app.command_input.clear();
                             } else if let Ok(line_num) = cmd.parse::<usize>() {
                                 // Jump to line number (1-indexed)
                                 if line_num > 0 && line_num <= app.cells.len() {
@@ -2578,12 +2603,19 @@ async fn run_app<B: Backend + std::io::Write>(terminal: &mut Terminal<B>, app: &
                             } else {
                                 match app.command_input.as_str() {
                                 "q" => {
-                                    let is_untitled_empty = app.file_path.is_none() && app.cells.iter().all(|c| c.content.trim().is_empty());
-                                    if app.dirty && !is_untitled_empty {
-                                        app.status_message = Some("E37: No write since last change (add ! to override)".to_string());
-                                        app.input_mode = InputMode::Normal;
-                                    } else {
+                                    if app.savequit {
+                                        let path = app.workspace_snapshot_path()?;
+                                        let path_str = path.to_string_lossy().to_string();
+                                        app.save_notebook(Some(&path_str))?;
                                         return Ok(());
+                                    } else {
+                                        let is_untitled_empty = app.file_path.is_none() && app.cells.iter().all(|c| c.content.trim().is_empty());
+                                        if app.dirty && !is_untitled_empty {
+                                            app.status_message = Some("E37: No write since last change (add ! to override)".to_string());
+                                            app.input_mode = InputMode::Normal;
+                                        } else {
+                                            return Ok(());
+                                        }
                                     }
                                 }
                                 "q!" => return Ok(()),
