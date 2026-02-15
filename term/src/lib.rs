@@ -1,5 +1,7 @@
 use clap::Parser;
 use arboard::Clipboard;
+use chrono::Local;
+use ignore::gitignore::Gitignore;
 
 use crossterm::{
     event::{self, DisableMouseCapture, EnableMouseCapture, Event, KeyCode, KeyboardEnhancementFlags, PushKeyboardEnhancementFlags, PopKeyboardEnhancementFlags},
@@ -235,6 +237,8 @@ pub struct App {
     pub accent_color: Color,
     pub display_mode: String,
     pub colorscheme: String,
+    pub show_hidden_files: bool,
+    pub respect_gitignore: bool,
     pub dirty: bool,
     pub last_file_refresh: std::time::Instant,
     pub numeric_prefix: Option<usize>,
@@ -294,6 +298,8 @@ impl App {
             accent_color: Color::Indexed(183),  // Pastel purple/mauve (default for pastel colorscheme)
             display_mode: "compact".to_string(),
             colorscheme: "pastel".to_string(),
+            show_hidden_files: false,
+            respect_gitignore: false,
             dirty: false,
             last_file_refresh: std::time::Instant::now(),
             numeric_prefix: None,
@@ -401,7 +407,12 @@ impl App {
         });
 
         // Build hierarchical tree for local files
-        self.build_directory_tree(&cwd, 0, false);
+        let local_gitignore = if self.respect_gitignore {
+            Some(Gitignore::new(cwd.join(".gitignore")).0)
+        } else {
+            None
+        };
+        self.build_directory_tree(&cwd, 0, false, local_gitignore.as_ref());
 
         // App Files Header
         self.available_files.push(FileItem {
@@ -417,7 +428,7 @@ impl App {
 
         // Build hierarchical tree for app files
         let app_dir = get_app_dir();
-        self.build_directory_tree(&app_dir, 0, true);
+        self.build_directory_tree(&app_dir, 0, true, None);
 
         // Restore the previous selection, or default to 0 if it was None
         // Also ensure the selection is within bounds
@@ -429,7 +440,13 @@ impl App {
         }
     }
 
-    fn build_directory_tree(&mut self, dir: &PathBuf, depth: usize, is_app_file: bool) {
+    fn build_directory_tree(
+        &mut self,
+        dir: &PathBuf,
+        depth: usize,
+        is_app_file: bool,
+        gitignore: Option<&Gitignore>,
+    ) {
         if let Ok(entries) = fs::read_dir(dir) {
             let mut items: Vec<(PathBuf, bool)> = entries
                 .flatten()
@@ -450,10 +467,22 @@ impl App {
             });
 
             for (path, is_dir) in items {
-                // Skip hidden files/directories
-                if let Some(name) = path.file_name() {
-                    if name.to_string_lossy().starts_with('.') {
-                        continue;
+                let file_name = path.file_name().map(|n| n.to_string_lossy().to_string());
+                let is_newt_dir = file_name.as_deref() == Some(".newt");
+
+                if !self.show_hidden_files && !is_newt_dir {
+                    if let Some(name) = &file_name {
+                        if name.starts_with('.') {
+                            continue;
+                        }
+                    }
+                }
+
+                if !is_app_file && self.respect_gitignore && !is_newt_dir {
+                    if let Some(matcher) = gitignore {
+                        if matcher.matched_path_or_any_parents(&path, is_dir).is_ignore() {
+                            continue;
+                        }
                     }
                 }
 
@@ -480,7 +509,7 @@ impl App {
 
                 // Recursively add children if directory is expanded
                 if is_dir && is_expanded {
-                    self.build_directory_tree(&path, depth + 1, is_app_file);
+                    self.build_directory_tree(&path, depth + 1, is_app_file, gitignore);
                 }
             }
         }
@@ -691,6 +720,30 @@ impl App {
         Ok(())
     }
 
+    fn workspace_snapshot_path(&self) -> io::Result<PathBuf> {
+        let base_dir = if let Some(path) = &self.file_path {
+            path.parent()
+                .map(|parent| parent.to_path_buf())
+                .unwrap_or(std::env::current_dir()?)
+        } else {
+            std::env::current_dir()?
+        };
+
+        let snapshot_dir = base_dir.join(".newt");
+        fs::create_dir_all(&snapshot_dir)?;
+
+        let timestamp = Local::now().format("%Y-%m-%d_%H-%M-%S").to_string();
+        let mut path = snapshot_dir.join(format!("{}.md", timestamp));
+
+        let mut counter = 2;
+        while path.exists() {
+            path = snapshot_dir.join(format!("{}_{}.md", timestamp, counter));
+            counter += 1;
+        }
+
+        Ok(path)
+    }
+
     pub fn check_polling(&mut self) -> Vec<usize> {
         let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_secs();
         let mut indices_to_run = Vec::new();
@@ -788,6 +841,12 @@ impl App {
                 if let Some(scheme) = config.colorscheme {
                     self.colorscheme = scheme;
                 }
+                if let Some(show_hidden_files) = config.show_hidden_files {
+                    self.show_hidden_files = show_hidden_files;
+                }
+                if let Some(respect_gitignore) = config.respect_gitignore {
+                    self.respect_gitignore = respect_gitignore;
+                }
             }
         }
         // Set accent_color based on colorscheme
@@ -807,6 +866,8 @@ impl App {
         config.editor = Some(self.editor.clone());
         config.display_mode = Some(self.display_mode.clone());
         config.colorscheme = Some(self.colorscheme.clone());
+        config.show_hidden_files = Some(self.show_hidden_files);
+        config.respect_gitignore = Some(self.respect_gitignore);
 
         if let Ok(json) = serde_json::to_string_pretty(&config) {
             let _ = fs::write(path, json);
@@ -2460,6 +2521,48 @@ async fn run_app<B: Backend + std::io::Write>(terminal: &mut Terminal<B>, app: &
                                 }
                                 app.input_mode = InputMode::Normal;
                                 app.command_input.clear();
+                            } else if cmd.starts_with("hidden ") {
+                                let value = cmd[7..].trim();
+                                match value {
+                                    "on" => {
+                                        app.show_hidden_files = true;
+                                        app.save_config();
+                                        app.refresh_file_list();
+                                        app.status_message = Some("Hidden files shown".to_string());
+                                    }
+                                    "off" => {
+                                        app.show_hidden_files = false;
+                                        app.save_config();
+                                        app.refresh_file_list();
+                                        app.status_message = Some("Hidden files hidden (except .newt)".to_string());
+                                    }
+                                    _ => {
+                                        app.status_message = Some("Invalid value. Use ':hidden on' or ':hidden off'".to_string());
+                                    }
+                                }
+                                app.input_mode = InputMode::Normal;
+                                app.command_input.clear();
+                            } else if cmd.starts_with("gitignore ") {
+                                let value = cmd[10..].trim();
+                                match value {
+                                    "on" => {
+                                        app.respect_gitignore = true;
+                                        app.save_config();
+                                        app.refresh_file_list();
+                                        app.status_message = Some("Gitignore filtering enabled".to_string());
+                                    }
+                                    "off" => {
+                                        app.respect_gitignore = false;
+                                        app.save_config();
+                                        app.refresh_file_list();
+                                        app.status_message = Some("Gitignore filtering disabled".to_string());
+                                    }
+                                    _ => {
+                                        app.status_message = Some("Invalid value. Use ':gitignore on' or ':gitignore off'".to_string());
+                                    }
+                                }
+                                app.input_mode = InputMode::Normal;
+                                app.command_input.clear();
                             } else if let Ok(line_num) = cmd.parse::<usize>() {
                                 // Jump to line number (1-indexed)
                                 if line_num > 0 && line_num <= app.cells.len() {
@@ -2488,6 +2591,14 @@ async fn run_app<B: Backend + std::io::Write>(terminal: &mut Terminal<B>, app: &
                                     app.save_notebook(None)?;
                                     app.input_mode = InputMode::Normal;
                                     app.refresh_file_list(); // Refresh list after save
+                                }
+                                "ws" => {
+                                    let path = app.workspace_snapshot_path()?;
+                                    let path_str = path.to_string_lossy().to_string();
+                                    app.save_notebook(Some(&path_str))?;
+                                    app.status_message = Some(format!("Saved to {}", path.display()));
+                                    app.input_mode = InputMode::Normal;
+                                    app.refresh_file_list();
                                 }
                                 "ww" => {
                                     let filename = if let Some(p) = &app.file_path {

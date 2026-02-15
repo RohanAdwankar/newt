@@ -31,6 +31,8 @@ tower-http = { version = "0.6.7", features = ["cors"] }
 syntect = "5.3"
 tui-syntax-highlight = "0.2"
 ratatui-core = "0.1"
+chrono = "0.4"
+ignore = "0.4"
 
 [dev-dependencies]
 http-body-util = "0.1.3"
