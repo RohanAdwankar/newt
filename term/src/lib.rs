@@ -451,13 +451,6 @@ impl App {
             });
 
             for (path, is_dir) in items {
-                // Skip hidden files/directories
-                if let Some(name) = path.file_name() {
-                    if name.to_string_lossy().starts_with('.') {
-                        continue;
-                    }
-                }
-
                 // For app files, only show .newt and .md files (but always show directories)
                 if is_app_file && !is_dir {
                     if !path.extension().map_or(false, |ext| ext == "newt" || ext == "md") {
