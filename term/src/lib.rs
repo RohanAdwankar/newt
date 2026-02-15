@@ -210,6 +210,7 @@ pub struct App {
     pub cells: Vec<Cell>,
     pub list_state: ListState,
     pub input: String,
+    pub shell_cursor: usize,
     pub input_mode: InputMode,
     pub pending_delete: bool,
     pub command_input: String,
@@ -268,6 +269,7 @@ impl App {
             cells: Vec::new(),
             list_state: ListState::default(),
             input: String::new(),
+            shell_cursor: 0,
             input_mode: InputMode::Editing,
             pending_delete: false,
             command_input: String::new(),
@@ -315,8 +317,8 @@ impl App {
                             if let Ok(cells) = serde_json::from_str(&content) {
                                 app.cells = cells;
                                 app.file_path = Some(path);
-                                app.input_mode = InputMode::Normal;
                                 app.list_state.select(Some(0));
+                                app.set_default_mode_for_selected_cell();
                                 return app;
                             }
                             
@@ -324,8 +326,8 @@ impl App {
                             if !cells.is_empty() {
                                 app.cells = cells;
                                 app.file_path = Some(path);
-                                app.input_mode = InputMode::Normal;
                                 app.list_state.select(Some(0));
+                                app.set_default_mode_for_selected_cell();
                                 return app;
                             }
                         }
@@ -352,8 +354,8 @@ impl App {
                                     if let Some(c) = cells {
                                         app.cells = c;
                                         app.file_path = Some(path.clone());
-                                        app.input_mode = InputMode::Normal;
                                         app.list_state.select(Some(0));
+                                        app.set_default_mode_for_selected_cell();
                                         return app;
                                     }
                                 }
@@ -572,8 +574,12 @@ impl App {
     }
 
     fn add_cell(&mut self, cell_type: CellType) {
+        let is_shell = cell_type == CellType::Shell;
         self.insert_cell(self.cells.len(), cell_type);
-        self.input_mode = InputMode::Editing;
+        if is_shell {
+            self.input_mode = InputMode::Editing;
+            self.shell_cursor = 0;
+        }
     }
 
     fn insert_cell(&mut self, index: usize, cell_type: CellType) {
@@ -589,8 +595,23 @@ impl App {
         // Select the input of the new cell
         self.list_state.select(Some(index));
         self.input.clear();
+        self.shell_cursor = 0;
         self.input_mode = InputMode::Normal;
         self.dirty = true;
+    }
+
+    fn set_default_mode_for_selected_cell(&mut self) {
+        if let Some(i) = self.list_state.selected() {
+            if let Some(cell) = self.cells.get(i) {
+                if cell.cell_type == CellType::Shell {
+                    self.input_mode = InputMode::Editing;
+                    self.shell_cursor = cell.content.len();
+                    return;
+                }
+            }
+        }
+        self.input_mode = InputMode::Normal;
+        self.shell_cursor = 0;
     }
 
     fn delete_current_cell(&mut self) {
@@ -883,6 +904,32 @@ fn get_app_dir() -> PathBuf {
     } else {
         PathBuf::from(".")
     }
+}
+
+fn prev_char_boundary(text: &str, idx: usize) -> usize {
+    if idx == 0 {
+        return 0;
+    }
+    let clamped = idx.min(text.len());
+    text[..clamped]
+        .char_indices()
+        .last()
+        .map(|(i, _)| i)
+        .unwrap_or(0)
+}
+
+fn next_char_boundary(text: &str, idx: usize) -> usize {
+    let clamped = idx.min(text.len());
+    if clamped >= text.len() {
+        return text.len();
+    }
+
+    let mut chars = text[clamped..].char_indices();
+    let _ = chars.next();
+    chars
+        .next()
+        .map(|(offset, _)| clamped + offset)
+        .unwrap_or(text.len())
 }
 
 /// Detect the terminal prompt pattern from the file content
@@ -1988,7 +2035,7 @@ async fn run_app<B: Backend + std::io::Write>(terminal: &mut Terminal<B>, app: &
 
                                                 match cell_type {
                                                     CellType::Shell => {
-                                                        app.input = content;
+                                                        app.shell_cursor = content.len();
                                                         app.input_mode = InputMode::Editing;
                                                     }
                                                     _ => {
@@ -2661,8 +2708,16 @@ async fn run_app<B: Backend + std::io::Write>(terminal: &mut Terminal<B>, app: &
                     },
                     InputMode::Editing => match key.code {
                         KeyCode::Enter => {
-                            let input = app.input.trim();
-                            let (new_type, ext) = match input {
+                            let input = if let Some(i) = app.list_state.selected() {
+                                if let Some(cell) = app.cells.get(i) {
+                                    cell.content.trim().to_string()
+                                } else {
+                                    String::new()
+                                }
+                            } else {
+                                String::new()
+                            };
+                            let (new_type, ext) = match input.as_str() {
                                 "rust" => (Some(CellType::Rust), ".rs"),
                                 "py" | "python" => (Some(CellType::Python), ".py"),
                                 "js" | "javascript" => (Some(CellType::JavaScript), ".js"),
@@ -2730,14 +2785,11 @@ async fn run_app<B: Backend + std::io::Write>(terminal: &mut Terminal<B>, app: &
                                     } 
                                 }
                             } else {
-                                // Run the cell
-                                let input_content = app.input.clone();
                                 let mut is_interactive = false;
                                 let mut cmd_to_run = String::new();
 
                                 if let Some(cell) = app.current_cell_mut() {
                                     if cell.cell_type == CellType::Shell {
-                                        cell.content = input_content;
                                         let cmd = cell.content.trim();
                                         if cmd.starts_with("vi") || cmd.starts_with("vim") || cmd.starts_with("nano") {
                                             is_interactive = true;
@@ -2809,10 +2861,78 @@ async fn run_app<B: Backend + std::io::Write>(terminal: &mut Terminal<B>, app: &
                             }
                         }
                         KeyCode::Char(c) => {
-                            app.input.push(c);
+                            let cursor = app.shell_cursor;
+                            if let Some(cell) = app.current_cell_mut() {
+                                if cell.cell_type == CellType::Shell {
+                                    let pos = cursor.min(cell.content.len());
+                                    if cell.content.is_char_boundary(pos) {
+                                        cell.content.insert(pos, c);
+                                        app.shell_cursor = pos + c.len_utf8();
+                                        app.dirty = true;
+                                    }
+                                }
+                            }
                         }
                         KeyCode::Backspace => {
-                            app.input.pop();
+                            let cursor = app.shell_cursor;
+                            if let Some(cell) = app.current_cell_mut() {
+                                if cell.cell_type == CellType::Shell && cursor > 0 {
+                                    let prev = prev_char_boundary(&cell.content, cursor);
+                                    if prev < cursor {
+                                        cell.content.replace_range(prev..cursor, "");
+                                        app.shell_cursor = prev;
+                                        app.dirty = true;
+                                    }
+                                }
+                            }
+                        }
+                        KeyCode::Delete => {
+                            let cursor = app.shell_cursor;
+                            if let Some(cell) = app.current_cell_mut() {
+                                if cell.cell_type == CellType::Shell && cursor < cell.content.len() {
+                                    let next = next_char_boundary(&cell.content, cursor);
+                                    if cursor < next {
+                                        cell.content.replace_range(cursor..next, "");
+                                        app.dirty = true;
+                                    }
+                                }
+                            }
+                        }
+                        KeyCode::Left => {
+                            if let Some(i) = app.list_state.selected() {
+                                if let Some(cell) = app.cells.get(i) {
+                                    if cell.cell_type == CellType::Shell {
+                                        app.shell_cursor = prev_char_boundary(&cell.content, app.shell_cursor.min(cell.content.len()));
+                                    }
+                                }
+                            }
+                        }
+                        KeyCode::Right => {
+                            if let Some(i) = app.list_state.selected() {
+                                if let Some(cell) = app.cells.get(i) {
+                                    if cell.cell_type == CellType::Shell {
+                                        app.shell_cursor = next_char_boundary(&cell.content, app.shell_cursor.min(cell.content.len()));
+                                    }
+                                }
+                            }
+                        }
+                        KeyCode::Home => {
+                            if let Some(i) = app.list_state.selected() {
+                                if let Some(cell) = app.cells.get(i) {
+                                    if cell.cell_type == CellType::Shell {
+                                        app.shell_cursor = 0;
+                                    }
+                                }
+                            }
+                        }
+                        KeyCode::End => {
+                            if let Some(i) = app.list_state.selected() {
+                                if let Some(cell) = app.cells.get(i) {
+                                    if cell.cell_type == CellType::Shell {
+                                        app.shell_cursor = cell.content.len();
+                                    }
+                                }
+                            }
                         }
                         KeyCode::Esc => {
                             app.input_mode = InputMode::Normal;
@@ -3436,6 +3556,44 @@ fn ui(f: &mut Frame, app: &mut App) {
                  }
              }
         } else {
+             if app.input_mode == InputMode::Editing && is_selected && cell.cell_type == CellType::Shell {
+                 let cursor = app.shell_cursor.min(cell.content.len());
+                 let before = &cell.content[..cursor];
+                 let after = &cell.content[cursor..];
+                 let (cursor_char, after_rest) = if let Some(ch) = after.chars().next() {
+                     (ch.to_string(), after[ch.len_utf8()..].to_string())
+                 } else {
+                     (" ".to_string(), String::new())
+                 };
+
+                 if app.display_mode == "compact" {
+                     let mut first_line = Line::from(vec![
+                        Span::raw(before.to_string()),
+                        Span::styled(cursor_char, Style::default().add_modifier(Modifier::REVERSED)),
+                        Span::raw(after_rest),
+                    ]);
+
+                     let first_line_len = cell.content.chars().count().saturating_add(1);
+                     let first_padding_len = width.saturating_sub(first_line_len + header_str.len()).saturating_sub(2);
+                     let first_padding = " ".repeat(first_padding_len);
+                     first_line.spans.push(Span::raw(first_padding));
+                     first_line.spans.push(Span::styled(header_str.clone(), style));
+                     cell_lines.push(first_line);
+                 } else {
+                     cell_lines.push(Line::from(vec![
+                        Span::styled("In:", style),
+                        Span::raw(padding.clone()),
+                        Span::styled(header_str.clone(), style),
+                    ]));
+
+                     cell_lines.push(Line::from(vec![
+                        Span::raw("     "),
+                        Span::raw(before.to_string()),
+                        Span::styled(cursor_char, Style::default().add_modifier(Modifier::REVERSED)),
+                        Span::raw(after_rest),
+                    ]));
+                 }
+             } else {
              if app.display_mode == "compact" {
                  // Compact mode: first line with tag, no "In:" label, with syntax highlighting
                  if cell.content.is_empty() {
@@ -3474,6 +3632,7 @@ fn ui(f: &mut Frame, app: &mut App) {
                          cell_lines.push(line);
                      }
                  }
+             }
              }
         };
         
@@ -3546,23 +3705,12 @@ fn ui(f: &mut Frame, app: &mut App) {
 
     f.render_stateful_widget(list, editor_area, &mut app.list_state.clone());
 
-    // Input box / Command bar
+    // Bottom bar
     match app.input_mode {
         InputMode::Editing => {
-            if let Some(i) = app.list_state.selected() {
-                if let Some(cell) = app.cells.get(i) {
-                    if cell.cell_type == CellType::Shell {
-                        let area = editor_area; 
-                        let input_area = Rect::new(area.x, area.y + area.height.saturating_sub(3), area.width, 3);
-                        f.render_widget(ratatui::widgets::Clear, input_area);
-                        
-                        let input_block = Paragraph::new(app.input.as_str())
-                            .style(Style::default().fg(app.accent_color))
-                            .block(Block::default().borders(Borders::ALL).title("Input"));
-                        f.render_widget(input_block, input_area);
-                    }
-                }
-            }
+            let input_block = Paragraph::new("-- INSERT --")
+                .style(Style::default().fg(app.accent_color).add_modifier(Modifier::BOLD));
+            f.render_widget(input_block, bottom_bar_area);
         }
         InputMode::Command => {
             let input_block = Paragraph::new(format!(":{}", app.command_input))
