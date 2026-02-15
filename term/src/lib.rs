@@ -1922,7 +1922,12 @@ async fn run_app<B: Backend + std::io::Write>(terminal: &mut Terminal<B>, app: &
                                                 } else {
                                                     CellType::Shell
                                                 };
+                                                let is_shell = type_to_add == CellType::Shell;
                                                 app.insert_cell(idx, type_to_add);
+                                                if is_shell {
+                                                    app.input_mode = InputMode::Editing;
+                                                    app.shell_cursor = 0;
+                                                }
                                             }
                                         }
                                     }
@@ -1934,7 +1939,12 @@ async fn run_app<B: Backend + std::io::Write>(terminal: &mut Terminal<B>, app: &
                                                 } else {
                                                     CellType::Shell
                                                 };
+                                                let is_shell = type_to_add == CellType::Shell;
                                                 app.insert_cell(cell_idx, type_to_add);
+                                                if is_shell {
+                                                    app.input_mode = InputMode::Editing;
+                                                    app.shell_cursor = 0;
+                                                }
                                             }
                                         }
                                     }
