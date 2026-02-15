@@ -1,5 +1,6 @@
 use clap::Parser;
 use arboard::Clipboard;
+use chrono::Local;
 
 use crossterm::{
     event::{self, DisableMouseCapture, EnableMouseCapture, Event, KeyCode, KeyboardEnhancementFlags, PushKeyboardEnhancementFlags, PopKeyboardEnhancementFlags},
@@ -689,6 +690,30 @@ impl App {
         self.file_path = Some(path);
         self.dirty = false;
         Ok(())
+    }
+
+    fn workspace_snapshot_path(&self) -> io::Result<PathBuf> {
+        let base_dir = if let Some(path) = &self.file_path {
+            path.parent()
+                .map(|parent| parent.to_path_buf())
+                .unwrap_or(std::env::current_dir()?)
+        } else {
+            std::env::current_dir()?
+        };
+
+        let snapshot_dir = base_dir.join(".newt");
+        fs::create_dir_all(&snapshot_dir)?;
+
+        let timestamp = Local::now().format("%Y-%m-%d_%H-%M-%S").to_string();
+        let mut path = snapshot_dir.join(format!("{}.md", timestamp));
+
+        let mut counter = 2;
+        while path.exists() {
+            path = snapshot_dir.join(format!("{}_{}.md", timestamp, counter));
+            counter += 1;
+        }
+
+        Ok(path)
     }
 
     pub fn check_polling(&mut self) -> Vec<usize> {
@@ -2488,6 +2513,14 @@ async fn run_app<B: Backend + std::io::Write>(terminal: &mut Terminal<B>, app: &
                                     app.save_notebook(None)?;
                                     app.input_mode = InputMode::Normal;
                                     app.refresh_file_list(); // Refresh list after save
+                                }
+                                "ws" => {
+                                    let path = app.workspace_snapshot_path()?;
+                                    let path_str = path.to_string_lossy().to_string();
+                                    app.save_notebook(Some(&path_str))?;
+                                    app.status_message = Some(format!("Saved to {}", path.display()));
+                                    app.input_mode = InputMode::Normal;
+                                    app.refresh_file_list();
                                 }
                                 "ww" => {
                                     let filename = if let Some(p) = &app.file_path {

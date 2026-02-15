@@ -108,6 +108,7 @@ You can also pass the editor program directly such as `:editor ~/nvim-macos-arm6
 | Run All Cells | `:ra` | Run All Button |
 | Export Notebook | `:export` | Toolbar |
 | Save Notebook | `:w` | Save Button |
+| Save Snapshot to `.newt/` | `:ws` | - |
 | Quit / Close | `:q` | - |
 | Change Language | `:rust`, `:py`, `:ts`, `:js`, `:cpp`, `:c` | Toolbar |
 | Set Editor | `:editor <cmd>` | - |
