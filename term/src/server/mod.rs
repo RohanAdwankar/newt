@@ -201,6 +201,28 @@ pub async fn export_notebook(Json(notebook): Json<Notebook>) -> Json<ExportRespo
     Json(ExportResponse { markdown })
 }
 
+fn is_url_only_shell_input(input: &str) -> bool {
+    let trimmed = input.trim();
+    if !(trimmed.starts_with("http://") || trimmed.starts_with("https://")) {
+        return false;
+    }
+
+    !trimmed.chars().any(char::is_whitespace)
+}
+
+fn shell_single_quote_escape(value: &str) -> String {
+    value.replace('\'', "'\\''")
+}
+
+fn normalize_shell_command(command: &str) -> String {
+    if !is_url_only_shell_input(command) {
+        return command.to_string();
+    }
+
+    let url = command.trim();
+    format!("curl -sL --fail '{}' | jq .", shell_single_quote_escape(url))
+}
+
 async fn execute_shell(command: String) -> Json<CommandResponse> {
     if command.trim().is_empty() {
         return Json(CommandResponse {
@@ -210,6 +232,8 @@ async fn execute_shell(command: String) -> Json<CommandResponse> {
             display_data: None,
         });
     }
+
+    let command = normalize_shell_command(&command);
 
     tokio::task::spawn_blocking(move || {
         let mut shell_guard = match SHELL_SESSION.lock() {
@@ -288,6 +312,31 @@ async fn execute_shell(command: String) -> Json<CommandResponse> {
         status: Some(1),
         display_data: None,
     }))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{is_url_only_shell_input, normalize_shell_command};
+
+    #[test]
+    fn url_only_shell_input_is_detected() {
+        assert!(is_url_only_shell_input("https://api.github.com"));
+        assert!(is_url_only_shell_input("  http://example.com/data.json  "));
+        assert!(!is_url_only_shell_input("echo https://api.github.com"));
+        assert!(!is_url_only_shell_input("https://api.github.com path"));
+    }
+
+    #[test]
+    fn url_only_shell_input_is_rewritten_to_curl_and_jq() {
+        let rewritten = normalize_shell_command("https://api.github.com");
+        assert_eq!(rewritten, "curl -sL --fail 'https://api.github.com' | jq .");
+    }
+
+    #[test]
+    fn non_url_shell_input_is_unchanged() {
+        let original = "ls -la";
+        assert_eq!(normalize_shell_command(original), original);
+    }
 }
 
 async fn execute_rust(code: String, context: Option<Vec<String>>) -> Json<CommandResponse> {
